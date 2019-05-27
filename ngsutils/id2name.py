@@ -29,18 +29,17 @@ def main():
     db_engine = create_engine('sqlite://', echo=False)
     db_engine.row_factory = Row
 
-    USECOLS = [0]
-    df = pd.read_csv(sys.stdin, sep='\t', header=None, usecols=USECOLS)
-    df.columns = ['c' + str(c) for c in USECOLS]
+    df = pd.read_csv(sys.stdin, sep='\t', header=None)
+    df.columns = ['c' + str(c) for c in range(len(df.columns))]
     df.to_sql('stdin', con=db_engine, if_exists='replace')
 
     db_engine.execute("attach database '{}' as __outer__;".format(outer_sqlite_path))
-    query = "select outer.* from stdin left join __outer__.features as outer "\
-            "on stdin.c0 = outer.feature_id order by stdin.[index];"
+    query = "select {}, outer.* from stdin left join __outer__.features as outer "\
+            "on stdin.c0 = outer.feature_id order by stdin.[index];".format(', '.join(df.columns))
     results = db_engine.execute(query)
 
     for row in results:
-        print('\t'.join(row.values()))
+        print('\t'.join([str(v) if v is not None else '' for v in row]))
 
     results.close()
 
