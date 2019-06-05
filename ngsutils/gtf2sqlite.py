@@ -15,23 +15,22 @@ Usage:
 
 
 def main():
-    gtf_file = sys.argv[1]
+    gtf_path = sys.argv[1]
     try:
         target_table = sys.argv[2]
     except Exception:
         target_table = 'annotations'
 
-    gtf_df = read_gtf(gtf_file)
+    gtf_df = read_gtf(gtf_path)
 
-    output_dir = os.path.dirname(gtf_file)
-    output_file, _ = os.path.splitext(os.path.basename(gtf_file))
-    if output_dir == '':
-        output_dir = '.'
+    gtf_abspath = os.path.abspath(gtf_path)
+    root, _ = os.path.splitext(gtf_abspath)
+    output_path = root + '.sqlite'
 
-    conn = sqlite3.connect(output_dir + '/' + output_file + '.sqlite')
+    conn = sqlite3.connect(output_path)
     gtf_df.to_sql(target_table, conn, if_exists='replace')
     conn.close()
-    print('File wrote: ' + output_dir + '/' + output_file + '.sqlite')
+    print("File wrote: {}".format(output_path))
 
 
 if __name__ == '__main__':
