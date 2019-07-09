@@ -1,4 +1,18 @@
 #! /usr/bin/env python3
+
+"""
+Convert gene annotation GTF to BED
+
+Usage:
+  gtf2bed4igv [options] <gtf>
+
+Options:
+  --tx-only  : Output transcript records only [default: False]
+  <gtf>      : GTF file
+
+"""
+
+
 import sys
 import os
 from functools import partial
@@ -7,17 +21,6 @@ from docopt import docopt
 import numpy as np
 import pandas as pd
 from gtfparse import read_gtf
-
-"""
-Convert gene annotation GTF to BED
-
-Usage:
-  gtf2bed [options] <gtf>
-
-Options:
-  --tx-only  : Output transcript records only [default: False]
-
-"""
 
 
 def pack_name(id: pd.Series, feature_name: pd.Series, biotype: pd.Series):
@@ -43,7 +46,7 @@ def assign_color(strand, feature):
 def main():
     options = docopt(__doc__)
     gtf_path = options['<gtf>']
-    tx_pnly = options['--tx-only']
+    tx_only = options['--tx-only']
 
     gtf_df = read_gtf(gtf_path)
     gtf_df.strand = gtf_df.strand.replace('nan', '.')
@@ -71,8 +74,7 @@ def main():
     # 'chr', 'start', 'end', 'name', 'score', 'strand',
     # 'thick_start', 'thick_end', 'block_count', 'block_sizes', 'block_starts'
 
-
-    if not tx_pnly:
+    if not tx_only:
         # Gene record
         feature = 'gene'
         assign_color_ = partial(assign_color, feature=feature)
@@ -138,9 +140,9 @@ def main():
         'thick_end': ends_,
         'item_rgb': gtf_df.strand.apply(assign_color_)})
 
-    bed_df['block_count'] = counts_[gtf_df.transcript_id].values
-    bed_df['block_sizes'] = sizes_[gtf_df.transcript_id].values + ','
-    bed_df['block_starts'] = rel_starts_[gtf_df.transcript_id].values + ','
+    bed_df['block_count'] = counts_[gtf_df.transcript_id].astype(str)
+    bed_df['block_sizes'] = sizes_[gtf_df.transcript_id].astype(str) + ','
+    bed_df['block_starts'] = rel_starts_[gtf_df.transcript_id].astype(str) + ','
 
     bed_dfs['transcript'] = bed_df
 

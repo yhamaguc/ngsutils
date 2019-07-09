@@ -1,26 +1,27 @@
 #! /usr/bin/env python3
-
-"""
-Convert gene annotation GTF to SQLite
-
-Usage:
-  gtf2sqlite <gtf> [target_table_name]
-
-"""
-
 import sys
 import os
 
 import sqlite3
-from gtfparse import read_gtf
+from gffparse import read_gtf
+
+"""
+Convert gene annotation GFF to SQLite
+
+Usage:
+  gff2sqlite <gtf> [target_table_name]
+
+"""
 
 
 def main():
     gtf_path = sys.argv[1]
+
     try:
         target_table = sys.argv[2]
     except Exception:
         target_table = 'annotations'
+
 
     gtf_df = read_gtf(gtf_path)
 

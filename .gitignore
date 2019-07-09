@@ -1,5 +1,6 @@
 ### User defined ###
 # test dataset
+/assets/*
 /tests/dataset
 
 # line_profiler
