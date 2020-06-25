@@ -31,16 +31,14 @@ COLUMN_NAMES = [
 def expand_attributes(df, quote_chr='\"', replacement=''):
     def to_key_value(attribute):
         if not attribute:
-            return pd.Series(None)
+            return {}
 
-        return pd.Series(dict(kv.strip().split(' ') for kv in attribute.split(';') if kv))
+        return dict(kv.strip().split(' ') for kv in attribute.split(';') if kv)
 
     attributes = df['attribute'].replace('; ', ';', regex=True)
-    expanded = pd.concat(
+    expanded = pd.DataFrame(
         [to_key_value(a) for a in attributes],
-        axis=1,
-        sort=False
-        ).transpose().fillna('').applymap(lambda x: x.strip('\"'))
+        ).fillna(replacement).applymap(lambda x: x.strip(quote_chr))
 
     # FIXME: Save order
     df_expanded = pd.concat([
