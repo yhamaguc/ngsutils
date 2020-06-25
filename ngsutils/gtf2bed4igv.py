@@ -13,7 +13,6 @@ Options:
 """
 
 
-import sys
 import os
 from functools import partial
 
@@ -127,6 +126,7 @@ def main():
     zeros_ = np.zeros(len(gtf_df.index)).astype(int)
     starts_ = gtf_df.start - 1
     ends_ = gtf_df.end
+
     bed_df = pd.DataFrame({
         'chr': gtf_df.seqname,
         'start': starts_,
@@ -138,12 +138,14 @@ def main():
         'strand': gtf_df.strand,
         'thick_start': ends_,
         'thick_end': ends_,
-        'item_rgb': gtf_df.strand.apply(assign_color_)})
+        'item_rgb': gtf_df.strand.apply(assign_color_)}).reset_index(drop=True)
 
-    bed_df['block_count'] = counts_[gtf_df.transcript_id].astype(str)
-    bed_df['block_sizes'] = sizes_[gtf_df.transcript_id].astype(str) + ','
-    bed_df['block_starts'] = rel_starts_[gtf_df.transcript_id].astype(str) + ','
+    bed_df = [bed_df, pd.DataFrame({
+        'block_count': counts_[gtf_df.transcript_id].astype(str),
+        'block_sizes': (sizes_[gtf_df.transcript_id].astype(str) + ','),
+        'block_starts': (rel_starts_[gtf_df.transcript_id].astype(str) + ',')}).reset_index(drop=True)]
 
+    bed_df = pd.concat(bed_df, axis=1)
     bed_dfs['transcript'] = bed_df
 
     bed_df_merged = pd.concat(bed_dfs.values())
