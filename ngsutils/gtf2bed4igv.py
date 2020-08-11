@@ -88,7 +88,7 @@ def main():
             'name': pack_name(gtf_df.gene_id, gtf_df.gene_name, gtf_df.gene_type),
             'score': zeros_,
             'strand': gtf_df.strand,
-            'thick_start': ends_,
+            'thick_start': starts_,
             'thick_end': ends_,
             'item_rgb': gtf_df.strand.apply(assign_color_),
             'block_count': np.ones(len(gtf_df.index)),
