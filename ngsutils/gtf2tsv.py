@@ -4,7 +4,7 @@
 Parse GTF to pandas dataframe
 
 Usage:
-  parse_gtf <gtf>
+  gtf2tsv <gtf>
 
 """
 
