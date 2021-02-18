@@ -20,8 +20,8 @@ Usage:
 
 
 def main():
-    # TODO: If sys.stdin is empty: exit
-    outer_sqlite_path = utils.from_root('assets/gencode.v29.annotation.sqlite')
+    outer_sqlite_path = utils.from_root('assets/gencode.annotation.gtf.sqlite')
+
     if not os.path.exists(outer_sqlite_path):
         raise FileNotFoundError
         sys.exit(1)
@@ -33,9 +33,11 @@ def main():
     df.columns = ['c' + str(c) for c in range(len(df.columns))]
     df.to_sql('stdin', con=db_engine, if_exists='replace')
 
-    db_engine.execute("attach database '{}' as __outer__;".format(outer_sqlite_path))
-    query = "select {}, outer.* from stdin left join __outer__.features as outer "\
-            "on stdin.c0 = outer.feature_id order by stdin.[index];".format(', '.join(df.columns))
+    db_engine.execute(f"attach database '{outer_sqlite_path}' as __ext__;")
+    v = "(select distinct gene_id as id, gene_name as name from __ext__.annotations union all select distinct transcript_id as id, transcript_name as name from __ext__.annotations)"
+    query = "select {}, ext.* from stdin left join {} as ext "\
+            "on substr(stdin.c0, 1, 15) = substr(ext.id, 1, 15) order by stdin.[index];".format(', '.join(df.columns), v)
+
     results = db_engine.execute(query)
 
     for row in results:
