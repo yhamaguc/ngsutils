@@ -1,5 +1,6 @@
 #! /usr/bin/env python3
 import sys
+from itertools import compress
 
 import sqlite3
 
@@ -55,7 +56,7 @@ def main():
     # Dramatically specify order- and select-columns (from sql_master.columns info)
     # select columns: * - index
 
-    sql = "SELECT * FROM {} ORDER BY gene_id, transcript_id, exon_number;".format(target_table)
+    sql = "SELECT * FROM {} ORDER BY [index];".format(target_table)
 
     try:
         cur.execute(sql)
@@ -70,9 +71,14 @@ def main():
         offset = 0
         if keys[0] == 'index':
             offset = 1
+
+        is_not_nulls = [True if v is not None and v != '' else False for v in r[8 + offset:]]
+        _values = list(compress(r[8 + offset:], is_not_nulls))
+        _keys = list(compress(keys[8 + offset:], is_not_nulls))
+
         print("{}\t{}".format(
             "\t".join(ifnull(r[offset:8 + offset])),
-            '; '.join(attributes_to_str(r[8 + offset:], keys[8 + offset:])))
+            '; '.join(attributes_to_str(_values, _keys)))
         )
 
 

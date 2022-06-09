@@ -12,7 +12,7 @@ import sys
 import os
 
 import sqlite3
-from gtfparse import read_gtf
+import gtfparse
 
 
 def main():
@@ -22,7 +22,9 @@ def main():
     except Exception:
         target_table = 'annotations'
 
-    gtf_df = read_gtf(gtf_path)
+    print(f"gtfparse.version: {gtfparse.__version__}", file=sys.stderr)
+
+    gtf_df = gtfparse.read_gtf(gtf_path)
 
     gtf_abspath = os.path.abspath(gtf_path)
     root, _ = os.path.splitext(gtf_abspath)

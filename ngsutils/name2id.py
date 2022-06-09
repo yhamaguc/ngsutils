@@ -1,10 +1,10 @@
 #! /usr/bin/env python3
 
 """
-Convert Ensembl ID to feature (gene/transcript) name
+Convert feature (gene/transcript) name to Ensembl ID
 
 Usage:
-  id2name [options]
+  name2id [options]
 
 Options:
   --db <PATH>    : Annotation data base (SQLite)
@@ -49,10 +49,10 @@ def main():
     df.to_sql("stdin", con=db_engine, if_exists="replace")
 
     db_engine.execute(f"attach database '{outer_sqlite_path}' as __ext__;")
-    v = "(select distinct gene_id as id, gene_name as name from __ext__.annotations union all select distinct transcript_id as id, transcript_name as name from __ext__.annotations)"
+    v = "(select distinct gene_name as name, gene_id as id from __ext__.annotations union all select distinct transcript_name as name, transcript_id as id from __ext__.annotations)"
     query = (
-        "select {}, ext.name from stdin left join {} as ext "
-        "on substr(stdin.c{}, 1, 15) = substr(ext.id, 1, 15) order by stdin.[index];".format(
+        "select {}, ext.id from stdin left join {} as ext "
+        "on c{} = ext.name order by stdin.[index];".format(
             ", ".join(df.columns), v, str(col_position)
         )
     )
