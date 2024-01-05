@@ -11,7 +11,6 @@ Usage:
 import sys
 import os
 
-import sqlite3
 import gtfparse
 
 
@@ -30,9 +29,8 @@ def main():
     root, _ = os.path.splitext(gtf_abspath)
     output_path = root + '.sqlite'
 
-    conn = sqlite3.connect(output_path)
-    gtf_df.to_sql(target_table, conn, if_exists='replace')
-    conn.close()
+    conn = 'sqlite:///' + output_path
+    gtf_df.write_database(target_table, conn, if_table_exists='replace', engine='sqlalchemy')
     print("File wrote: {}".format(output_path))
 
 

@@ -76,7 +76,7 @@ def main():
 
     gtf = read_gtf(gtf_path)
 
-    gtf.to_csv(
+    gtf.write_csv(
         sys.stdout,
         sep="\t",
         header=False,
