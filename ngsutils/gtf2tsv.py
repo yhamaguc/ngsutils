@@ -63,8 +63,6 @@ def read_gtf(path, names=COLUMN_NAMES):
             names=names,
             skipinitialspace=True,
             skip_blank_lines=True,
-            error_bad_lines=False,
-            warn_bad_lines=True,
             dtype=str
         )
     )
@@ -76,10 +74,10 @@ def main():
 
     gtf = read_gtf(gtf_path)
 
-    gtf.write_csv(
+    gtf.to_csv(
         sys.stdout,
         sep="\t",
-        header=False,
+        header=True,
         index=False,
         quoting=csv.QUOTE_NONE
         )

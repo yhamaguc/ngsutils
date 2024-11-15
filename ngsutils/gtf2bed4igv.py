@@ -50,7 +50,8 @@ def main():
     if simplify:
         _pack_name = lambda id, _y, _z: id
 
-    gtf_df = read_gtf(gtf_path)
+    gtf_df = read_gtf(gtf_path).to_pandas()
+
     gtf_df.strand = gtf_df.strand.replace("nan", ".")
     # NOTE: gtf_df.columns;
     # Index(['seqname', 'source', 'feature', 'start', 'end', 'score', 'strand',
@@ -115,7 +116,7 @@ def main():
     columns_ = ["transcript_id", "start", "end"]
     outer_df = gtf_df
     inner_df = gtf_dfs["transcript"].filter(columns_)
-    gtf_df = pd.merge(outer_df, inner_df, on="transcript_id", left_index=True)
+    gtf_df = pd.merge(outer_df, inner_df, on="transcript_id")
     gtf_df["rel_start"] = gtf_df.start_x - gtf_df.start_y
     gtf_df = gtf_df.sort_values(["transcript_id", "start_x"])
     gtf_df["size"] = gtf_df["size"].astype(str)
@@ -128,7 +129,7 @@ def main():
     counts_ = (
         gtf_df.groupby("transcript_id")["exon_id"]
         .count()
-        .rename(columns={"exon_id": "count"})
+        .rename({"exon_id": "count"})
     )
 
     # NOTE: CDS record
