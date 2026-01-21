@@ -38,7 +38,7 @@ def main():
     annotations = read_gtf(gtf_path)
     annotations = annotations.query(
         "feature == 'exon'"
-        ).filter(cols).sort_values(by=cols)
+    ).filter(cols).sort_values(by=cols)
 
     annotations = annotations.drop_duplicates(cols)
     annotations.to_csv(output_path, header=False, index=False, sep='\t')

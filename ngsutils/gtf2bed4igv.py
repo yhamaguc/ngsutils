@@ -48,7 +48,7 @@ def main():
     _pack_name = pack_name
 
     if simplify:
-        _pack_name = lambda id, _y, _z: id
+        def _pack_name(id, _y, _z): return id
 
     gtf_df = read_gtf(gtf_path).to_pandas()
 
@@ -66,7 +66,8 @@ def main():
         if c not in gtf_df.columns:
             gtf_df[c] = "unknown"
 
-    features = ["gene", "transcript", "exon", "CDS", "start_codon", "stop_codon"]
+    features = ["gene", "transcript", "exon",
+                "CDS", "start_codon", "stop_codon"]
 
     gtf_dfs = {}
     for f in features:
@@ -122,7 +123,8 @@ def main():
     gtf_df["size"] = gtf_df["size"].astype(str)
     gtf_df["rel_start"] = gtf_df["rel_start"].astype(str)
 
-    sizes_ = gtf_df.groupby("transcript_id")["size"].apply(lambda x: ",".join(x))
+    sizes_ = gtf_df.groupby("transcript_id")[
+        "size"].apply(lambda x: ",".join(x))
     rel_starts_ = gtf_df.groupby("transcript_id")["rel_start"].apply(
         lambda x: ",".join(x)
     )
@@ -136,15 +138,20 @@ def main():
     gtf_df = gtf_dfs["CDS"].copy()
     gtf_df["start"] = gtf_df.start - 1
 
-    cds_start_min_ = gtf_df[["transcript_id", "start", "end"]].melt(id_vars="transcript_id").groupby("transcript_id")["value"].min()
-    cds_end_max_ = gtf_df[["transcript_id", "start", "end"]].melt(id_vars="transcript_id").groupby("transcript_id")["value"].max()
+    cds_start_min_ = gtf_df[["transcript_id", "start", "end"]].melt(
+        id_vars="transcript_id").groupby("transcript_id")["value"].min()
+    cds_end_max_ = gtf_df[["transcript_id", "start", "end"]].melt(
+        id_vars="transcript_id").groupby("transcript_id")["value"].max()
 
     # NOTE: start/stop codon records; if exists override thick columns
-    gtf_df = pd.concat([gtf_dfs["start_codon"].copy(), gtf_dfs["stop_codon"].copy()])
+    gtf_df = pd.concat([gtf_dfs["start_codon"].copy(),
+                       gtf_dfs["stop_codon"].copy()])
     gtf_df["start"] = gtf_df.start - 1
 
-    ss_codons_start_min_ = gtf_df[["transcript_id", "start", "end"]].melt(id_vars="transcript_id").groupby("transcript_id")["value"].min()
-    ss_codons_end_max_ = gtf_df[["transcript_id", "start", "end"]].melt(id_vars="transcript_id").groupby("transcript_id")["value"].max()
+    ss_codons_start_min_ = gtf_df[["transcript_id", "start", "end"]].melt(
+        id_vars="transcript_id").groupby("transcript_id")["value"].min()
+    ss_codons_end_max_ = gtf_df[["transcript_id", "start", "end"]].melt(
+        id_vars="transcript_id").groupby("transcript_id")["value"].max()
 
     # NOTE: Transcript record
     feature = "transcript"
@@ -196,7 +203,8 @@ def main():
         ss_codons_start_min_[idx].isna(), ss_codons_start_min_[idx], inplace=True
     )
 
-    bed_df["thick_end"].where(cds_end_max_[idx].isna(), cds_end_max_[idx], inplace=True)
+    bed_df["thick_end"].where(cds_end_max_[idx].isna(),
+                              cds_end_max_[idx], inplace=True)
     bed_df["thick_end"].where(
         ss_codons_end_max_[idx].isna(), ss_codons_end_max_[idx], inplace=True
     )
