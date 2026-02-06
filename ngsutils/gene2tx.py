@@ -1,9 +1,4 @@
 #! /usr/bin/env python3
-# $ -S $HOME/.pyenv/shims/python3
-# $ -l s_vmem=4G -l mem_req=4G
-# $ -cwd
-# $ -o $HOME/ugelogs/
-# $ -e $HOME/ugelogs/
 
 """
 Extract gene-transcript relationship from GTF
@@ -12,7 +7,7 @@ Usage:
   gene2tx [options] <gtf>
 
 Options:
-  --output-dir <PATH>  : Output directory [default: .]
+  -o --output-dir <PATH>  : Output directory [default: .]
   <gtf>                : GTF formatted gene annotation file
 
 """

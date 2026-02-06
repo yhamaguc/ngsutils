@@ -1,11 +1,25 @@
-#! /usr/bin/env python
+#!/usr/bin/env python3
+"""
+Convert MAF to BED
+
+Usage:
+  maf2bed [options]
+
+Options:
+  -s --slop <INT>  : Slop size [default: 0]
+
+"""
 
 # NOTE: This script was taken from https://github.com/edawson/maf_to_bed and modified
 
 import sys
 
-if __name__ == "__main__":
-    slop = 0
+from docopt import docopt
+
+
+def main():
+    options = docopt(__doc__)
+    slop = int(options['--slop'])
     for line in sys.stdin:
         if line .startswith("#") or line.startswith("individual") or line.startswith("Hugo_Symbol"):
             continue
@@ -20,3 +34,6 @@ if __name__ == "__main__":
         line_one = "\t".join(
             [chr_1, str(start - slop - 1), str(end + slop), ";".join(tokens)])
         print(line_one)
+
+if __name__ == '__main__':
+    main()

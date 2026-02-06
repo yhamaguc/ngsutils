@@ -8,8 +8,8 @@ Usage:
 
 Options:
   --gtf <PATH>   : Annotation file in GTF format
-  --file <PATH>  : Input file [default: stdin]
-  --col <INT>    : ID column position [default: 1]
+  -f --file <PATH>  : Input file [default: stdin]
+  -c --col <INT>    : ID column position [default: 1]
 
 """
 
@@ -17,7 +17,6 @@ import sys
 import os
 import pickle
 import hashlib
-import time
 import logging
 
 # Suppress all INFO and DEBUG logging from all modules - set EARLY

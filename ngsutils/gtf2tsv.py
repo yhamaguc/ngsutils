@@ -1,7 +1,7 @@
 #! /usr/bin/env python3
 
 """
-Parse GTF to pandas dataframe
+Convert GTF to TSV
 
 Usage:
   gtf2tsv <gtf>

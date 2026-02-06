@@ -77,4 +77,3 @@ for t in "${indexing_targets[@]}"; do
 
   tabix -p bed "${t%.gtf}.bed.gz"
 done
-  

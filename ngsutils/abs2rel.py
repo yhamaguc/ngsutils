@@ -1,19 +1,23 @@
 #! /usr/bin/env python3
-import sys
-import os
-from functools import partial
-
-import numpy as np
-import pandas as pd
-from gtfparse import read_gtf
-
 """
-Convert positions from genome corrdinates to transcript coordinates
+Convert positions from genome coordinates to transcript coordinates
 
 Usage:
   abspos2relpos <gtf>
 
+Arguments:
+  <gtf>  GTF file
+
 """
+
+import sys
+import os
+from functools import partial
+
+from docopt import docopt
+import numpy as np
+import pandas as pd
+from gtfparse import read_gtf
 
 
 def pack_name(id: pd.Series, feature_name: pd.Series, biotype: pd.Series):
@@ -21,13 +25,18 @@ def pack_name(id: pd.Series, feature_name: pd.Series, biotype: pd.Series):
     return name_packed
 
 
-colors_gene = {'+': '128,0,0',
-               '-': '0,0,128',
-               '.': '0,128,0'}
+colors_gene = {
+    '+': '128,0,0',
+    '-': '0,0,128',
+    '.': '0,128,0'
+}
 
-colors_transcript = {'+': '205,0,0',
-                     '-': '0,0,205',
-                     '.': '0,205,0'}
+colors_transcript = {
+    '+': '205,0,0',
+    '-': '0,0,205',
+    '.': '0,205,0'
+}
+
 
 ITEM_COLORS = {'gene': colors_gene, 'transcript': colors_transcript}
 
@@ -37,17 +46,10 @@ def assign_color(strand, feature):
 
 
 def main():
-    gtf_path = sys.argv[1]
-    gtf_path = '/Volumes/External/Assets/annotations/human/GRCh38/gencode/gencode.v29.annotation.gtf'
+    options = docopt(__doc__)
+    gtf_path = options['<gtf>']
 
     gtf_df = read_gtf(gtf_path)
-    # gtf_df.columns
-    # Index(['seqname', 'source', 'feature', 'start', 'end', 'score', 'strand',
-    #        'frame', 'havana_gene', 'gene_id', 'tag', 'index', 'gene_type', 'level',
-    #        'gene_name', 'transcript_id', 'transcript_name', 'havana_transcript',
-    #        'ont', 'transcript_type', 'exon_id', 'exon_number',
-    #        'transcript_support_level', 'protein_id', 'ccdsid'],
-    #       dtype='object')
 
     features = ['gene', 'transcript', 'exon']
 
@@ -97,8 +99,10 @@ def main():
     gtf_df['rel_start'] = gtf_df['rel_start'].astype(str)
 
     sizes_ = gtf_df.groupby('gene_id')['size'].apply(lambda x: ','.join(x))
-    rel_starts_ = gtf_df.groupby('gene_id')['rel_start'].apply(lambda x: ','.join(x))
-    counts_ = gtf_df.groupby('gene_id')['exon_id'].count().rename(columns={'exon_id': 'count'})
+    rel_starts_ = gtf_df.groupby(
+        'gene_id')['rel_start'].apply(lambda x: ','.join(x))
+    counts_ = gtf_df.groupby('gene_id')['exon_id'].count().rename(
+        columns={'exon_id': 'count'})
 
     feature = 'gene'
     gtf_df = gtf_dfs[feature]
@@ -106,34 +110,6 @@ def main():
     bed_df['block_sizes'] = sizes_[gtf_df.gene_id].values + ','
     bed_df['block_starts'] = rel_starts_[gtf_df.gene_id].values + ','
 
-#    # Transcript record
-#    feature = 'transcript'
-#    assign_color_ = partial(assign_color, feature=feature)
-#    gtf_df = gtf_dfs[feature].copy()
-#    zeros_ = np.zeros(len(gtf_df.index)).astype(int)
-#    starts_ = gtf_df.start - 1
-#    ends_ = gtf_df.end
-#    bed_df = pd.DataFrame({
-#        'chr': gtf_df.seqname,
-#        'start': starts_,
-#        'end': ends_,
-#        'name': pack_name(gtf_df.transcript_id,
-#                          gtf_df.transcript_name,
-#                          gtf_df.transcript_type),
-#        'score': zeros_,
-#        'strand': gtf_df.strand,
-#        'thick_start': ends_,
-#        'thick_end': ends_,
-#        'item_rgb': gtf_df.strand.apply(assign_color_)})
-#
-#    bed_df['block_count'] = counts_[gtf_df.transcript_id].values
-#    bed_df['block_sizes'] = sizes_[gtf_df.transcript_id].values + ','
-#    bed_df['block_starts'] = rel_starts_[gtf_df.transcript_id].values + ','
-#
-#    bed_dfs['transcript'] = bed_df
-
-#    bed_df_merged = pd.concat(bed_dfs.values())
-#    bed_df_merged = bed_df_merged.sort_values(['chr', 'start', 'name', 'end'])
     bed_df_merged = bed_df
 
     output_dir = os.path.dirname(gtf_path)
@@ -142,10 +118,9 @@ def main():
 
     gtf_root, _ = os.path.splitext(os.path.basename(gtf_path))
     output_path = os.path.join(output_dir, "{}_2.bed".format(gtf_root))
-    
+
     for c in ['score', 'thick_start', 'thick_end', 'block_count']:
         bed_df_merged[c] = bed_df_merged[c].astype(int)
-
 
     bed_df_merged['chr'] = bed_df_merged.chr.str.replace('^ENSG', 'IMMT')
 

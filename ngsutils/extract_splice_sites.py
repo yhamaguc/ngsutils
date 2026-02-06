@@ -1,13 +1,12 @@
-#!/usr/bin/env python
-
+#!/usr/bin/env python3
 """
-Extract splice site positions from GTF
+Extract splice site sequence from GTF
 
 Usage:
   extract_splice_sites.py [options] <gtf>
 
 Options:
-  --width <INT>  : donor / acceptor width [default: 2]
+  -w --width <INT>  : donor / acceptor width [default: 2]
   <gtf>          : GTF file
 
 """
@@ -58,17 +57,22 @@ def extract_splice_sites(exons, strand, class_, width=2):
 
     if class_ == IS_MIDDLE:
         return (
-            pd.concat([exons.apply(lambda r: donor(r, strand), axis=1),
-                       exons.apply(lambda r: acceptor(r, strand), axis=1)],
-                      axis=0,
-                      ignore_index=True
-                      )
+            pd.concat(
+                [
+                    exons.apply(lambda r: donor(r, strand), axis=1),
+                    exons.apply(lambda r: acceptor(r, strand), axis=1)
+                ],
+                axis=0,
+                ignore_index=True
+            )
         )
 
 
 def collapse(X):
-    X = X.groupby(['seqname', 'start', 'end', 'score', 'strand']).agg({'name' : lambda x: ';'.join(x.sort_values())})
-    X = X.drop_duplicates().reset_index().reindex(columns=['seqname', 'start', 'end', 'name', 'score', 'strand'])
+    X = X.groupby(['seqname', 'start', 'end', 'score', 'strand']).agg(
+        {'name': lambda x: ';'.join(x.sort_values())})
+    X = X.drop_duplicates().reset_index().reindex(
+        columns=['seqname', 'start', 'end', 'name', 'score', 'strand'])
 
     return X
 
@@ -115,9 +119,12 @@ def main():
     byclass_splice_sites = {k: extract_splice_sites(v, *k)
                             for k, v in exons.groupby(['strand', 'class'])}
 
+    _columns = ['seqname', 'start', 'end', 'name', 'score', 'strand']
     bed = pd.concat(
-        [pd.DataFrame(v.tolist(), columns=['seqname', 'start', 'end', 'name', 'score', 'strand'])
-         for v in byclass_splice_sites.values() if v is not None],
+        [
+            pd.DataFrame(v.tolist(), columns=_columns)
+            for v in byclass_splice_sites.values() if v is not None
+        ],
         axis=0,
         ignore_index=True
     ).pipe(sort_).pipe(to0base).pipe(collapse)

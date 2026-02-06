@@ -1,17 +1,21 @@
 #! /usr/bin/env python3
-import sys
-from itertools import compress
-
-import sqlite3
-
-
 """
 Convert gene annotation SQLite to GTF
 
 Usage:
-  sqlite2gtf <sqlite> [target_table_name]
+  sqlite2gtf <sqlite> [<target_table_name>]
+
+Arguments:
+  <sqlite>                 SQLite database file
+  <target_table_name>      Target table name [default: annotations]
 
 """
+
+from itertools import compress
+
+import sqlite3
+
+from docopt import docopt
 
 
 def ifnull(values: list, replacement=''):
@@ -41,28 +45,24 @@ def attributes_to_str(attribute_values: list, attribute_keys: list, replacement=
 
 
 def main():
-    sqlite_path = sys.argv[1]
-    try:
-        target_table = sys.argv[2]
-    except Exception:
-        target_table = 'annotations'
+    options = docopt(__doc__)
+    sqlite_path = options['<sqlite>']
+    target_table = options['<target_table_name>'] or 'annotations'
 
     conn = sqlite3.connect(sqlite_path)
     conn.row_factory = sqlite3.Row
 
     cur = conn.cursor()
 
-    # FIXME:
-    # Dramatically specify order- and select-columns (from sql_master.columns info)
-    # select columns: * - index
+    # Dynamically determine column order based on table schema
+    cur.execute("PRAGMA table_info({})".format(target_table))
+    columns = [row[1] for row in cur.fetchall()]
 
-    sql = "SELECT * FROM {} ORDER BY [index];".format(target_table)
+    # Determine order column: use 'index' if exists, otherwise use 'gene_id, transcript_id'
+    order_col = '[index]' if 'index' in columns else 'gene_id, transcript_id'
 
-    try:
-        cur.execute(sql)
-    except sqlite3.OperationalError:
-        sql = "SELECT * FROM {} ORDER BY gene_id, transcript_id;".format(target_table)
-        cur.execute(sql)
+    sql = "SELECT * FROM {} ORDER BY {};".format(target_table, order_col)
+    cur.execute(sql)
 
     keys = []
 

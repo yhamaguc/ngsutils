@@ -1,25 +1,28 @@
-#! /usr/bin/env python3
+#!/usr/bin/env python3
 
 """
 Convert gene annotation GTF to SQLite
 
 Usage:
-  gtf2sqlite <gtf> [target_table_name]
+  gtf2sqlite <gtf> [<target_table_name>]
+
+Arguments:
+  <gtf>                    GTF file
+  <target_table_name>      Target table name [default: annotations]
 
 """
 
 import sys
 import os
 
+from docopt import docopt
 import gtfparse
 
 
 def main():
-    gtf_path = sys.argv[1]
-    try:
-        target_table = sys.argv[2]
-    except Exception:
-        target_table = 'annotations'
+    options = docopt(__doc__)
+    gtf_path = options['<gtf>']
+    target_table = options['<target_table_name>'] or 'annotations'
 
     print(f"gtfparse.version: {gtfparse.__version__}", file=sys.stderr)
 
