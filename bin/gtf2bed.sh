@@ -1,8 +1,26 @@
 #! /usr/bin/bash
+
+#
+# Convert GTF to BED using UCSC utils
 #
 # Usage:
 #   gtf2bed.sh <gtf>
 #
+
+#
+# Subs
+#
+show_help() {
+  sed -n '2,/^$/p' "$0"  | sed 's/^# \?//'
+  exit 0
+}
+
+#
+# Main
+#
+if [[ $# -eq 0 || "$1" == "-h" ]]; then
+  show_help
+fi
 
 input=${1}
 input_root=$(basename ${input%.*})

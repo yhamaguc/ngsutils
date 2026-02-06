@@ -1,6 +1,21 @@
 #!/bin/bash
 
-# Usage: ./dl_gencode_human.sh <relase>
+# Usage: ./dl_gencode_human.sh <release_version>
+
+#
+# Subs
+#
+show_help() {
+  sed -n '2,/^$/p' "$0"  | sed 's/^# \?//'
+  exit 0
+}
+
+#
+# Main
+#
+if [[ $# -eq 0 || "$1" == "-h" ]]; then
+  show_help
+fi
 
 ver="$1"
 

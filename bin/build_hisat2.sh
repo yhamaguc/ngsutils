@@ -1,16 +1,26 @@
 #! /usr/bin/bash
+
 #
-# Prepare index for HISAT2
+# Build index for HISAT2
 #
 # Usage:
 #   qsub this.sh <genome.fasta> <gene-annotation.gtf>
 #
-#$ -S /bin/bash
-#$ -pe def_slot 4
-#$ -l s_vmem=48G -l mem_req=48G
-#$ -cwd
-#$ -o ./ugelogs/
-#$ -e ./ugelogs/
+
+#
+# Subs
+#
+show_help() {
+  sed -n '2,/^$/p' "$0"  | sed 's/^# \?//'
+  exit 0
+}
+
+#
+# Main
+#
+if [[ $# -eq 0 || "$1" == "-h" ]]; then
+  show_help
+fi
 
 fasta=$1
 gtf=$2
