@@ -1,0 +1,45 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "ngsutils"
+version = "0.2.0"
+description = "Utilities for NGS processing"
+authors = [
+  { name = "yhamaguc" }
+]
+dependencies = [
+  "docopt",
+  "pandas",
+  "polars",
+  "sqlalchemy",
+  "pysqlite3"
+]
+
+[project.scripts]
+ngsutils = "ngsutils.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["."]
+
+[tool.setuptools.package-data]
+ngsutils = ["data/*.pkl"]
+
+[tool.setuptools]
+script-files = [
+  "bin/align_star.sh",
+  "bin/build_hisat2.sh",
+  "bin/build_hisat2_wo_gtf.sh",
+  "bin/build_kallisto.sh",
+  "bin/build_rsem_ebseq.sh",
+  "bin/build_salmon.sh",
+  "bin/build_star.sh",
+  "bin/build_star_wo_gtf.sh",
+  "bin/conv_tximport.R",
+  "bin/de_deseq2.R",
+  "bin/download_gencode_hs.sh",
+  "bin/gtf2bed.sh",
+  "bin/pbrun_fq2bam.sh",
+  "bin/quant_salmon.sh"
+]

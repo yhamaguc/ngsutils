@@ -17,7 +17,7 @@ from docopt import docopt
 import pandas as pd
 import numpy as np
 
-from gtfparse import read_gtf
+from ngsutils.gtf import read_gtf
 
 
 def sort_(X):

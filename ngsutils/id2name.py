@@ -24,7 +24,7 @@ logging.basicConfig(level=logging.ERROR, force=True)
 for logger_name in list(logging.root.manager.loggerDict.keys()):
     logging.getLogger(logger_name).setLevel(logging.ERROR)
 
-import gtfparse
+import ngsutils.gtf as gtfparse
 import polars as pl
 
 from docopt import docopt

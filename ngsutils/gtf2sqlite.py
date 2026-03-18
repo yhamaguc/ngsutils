@@ -16,7 +16,7 @@ import sys
 import os
 
 from docopt import docopt
-import gtfparse
+import ngsutils.gtf as gtfparse
 
 
 def main():

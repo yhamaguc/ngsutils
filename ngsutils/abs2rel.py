@@ -17,7 +17,7 @@ from functools import partial
 from docopt import docopt
 import numpy as np
 import pandas as pd
-from gtfparse import read_gtf
+from ngsutils.gtf import read_gtf
 
 
 def pack_name(id: pd.Series, feature_name: pd.Series, biotype: pd.Series):
