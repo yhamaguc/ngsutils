@@ -30,6 +30,7 @@ _SUBCOMMANDS = {
     "maf2bed": "ngsutils.maf2bed:main",
     "name2id": "ngsutils.name2id:main",
     "sqlite2gtf": "ngsutils.sqlite2gtf:main",
+    "write_coverage_track": "ngsutils.write_coverage_track:main",
 }
 
 
