@@ -1,0 +1,23 @@
+# shellcheck configuration for bin/*.sh
+#
+# Each suppression below is a house rule from ~/.claude/rules/style-bash.md, not
+# a defect being waved through. They live here rather than as per-file directives
+# so there is one copy of each rule to read and change.
+
+# SC2086 -- word splitting is required by the build-echo-eval pattern:
+#   echo CMD: $cmd_ ; eval $cmd_
+disable=SC2086
+
+# SC2016 -- single-quoted '$VAR' is an intentional literal, e.g. in a
+#   copy-pasteable --dry-run echo.
+disable=SC2016
+
+# SC2231 -- quoting the variable in a glob such as dir/prefix.${pattern}.*.txt
+#   would stop the '*' from expanding.
+disable=SC2231
+
+# SC2154 -- every bin/*.sh binds its arguments with
+#     eval "$(docopts -A args -h "${DOC}" : "$@")"
+#   so the 'args' associative array is assigned by code shellcheck cannot see.
+#   Nothing else in these scripts relies on an unassigned variable.
+disable=SC2154

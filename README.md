@@ -28,6 +28,49 @@ Most subcommands need only the Python dependencies in `pyproject.toml`. `write_c
 also needs **`samtools` on `PATH`**, which `pyproject.toml` cannot express because it is not a
 Python package. It is checked at run time and a missing `samtools` is an error, not a fallback.
 
+Every script in `bin/` needs **`docopts` on `PATH`** for the same reason, plus whatever tool it
+wraps (STAR, salmon, fastp, the UCSC utilities, …). See below.
+
+## `bin/` scripts and `docopts`
+
+The shell scripts in `bin/` declare their command line in a docopt usage string and parse it with
+[`docopts`](https://github.com/docopt/docopts). That is the **Go binary**, not the `docopt` Python
+package listed in `pyproject.toml` — they share the docopt language but not the implementation, and
+installing one does not provide the other.
+
+There is no conda package for `docopts`, so it cannot be added to an environment file the way
+`samtools` can. Install it by dropping the release binary on `PATH`:
+
+```bash
+$ VERSION=v0.6.4-with-no-mangle-double-dash
+$ curl -fsSL -o ~/.local/bin/docopts \
+    https://github.com/docopt/docopts/releases/download/${VERSION}/docopts_linux_amd64
+$ chmod +x ~/.local/bin/docopts
+```
+
+The release publishes a `sha256sum.txt` beside the binaries; `docopts_linux_amd64` for that version
+is `a2e565b6f2ca73103005bc62295ed3401b40f10772f205587778595aeaa2b8fb`. Verify against it rather than
+trusting the download. With a Go toolchain, `go install github.com/docopt/docopts@${VERSION}` builds
+the same program instead.
+
+Where the compute nodes are not guaranteed to match the submit host, bake `docopts` into the
+container image rather than installing it per node — that is the only option here that survives a
+node the scripts have never run on.
+
+Each script checks for `docopts` before it does anything else and exits 127 with a message naming
+it, so a missing binary fails immediately instead of part way through a run:
+
+```
+Error: docopts not found on PATH. bin/*.sh parse their arguments with
+       it; install it from https://github.com/docopt/docopts
+```
+
+A malformed command line gets the usage message and exit 64; `--help` prints the full interface.
+
+Note that `pip install .` puts most of `bin/` on `PATH` through `script-files` in
+`pyproject.toml`, but `trim_fastp.sh` and `conv_sjouttab2bed.py` are not listed there and have to be
+run from a checkout.
+
 ## Tests
 
 ```bash

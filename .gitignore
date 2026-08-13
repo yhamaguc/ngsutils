@@ -23,6 +23,7 @@ Icon
 ### Linux ###
 .*
 !.gitignore
+!.shellcheckrc
 *~
 
 ### https://raw.github.com/github/gitignore/340e2fe08a2356c2e3760ff58c3a9e1fddf08060/Python.gitignore
