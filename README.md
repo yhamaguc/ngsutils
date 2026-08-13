@@ -71,6 +71,31 @@ Note that `pip install .` puts most of `bin/` on `PATH` through `script-files` i
 `pyproject.toml`, but `trim_fastp.sh` and `conv_sjouttab2bed.py` are not listed there and have to be
 run from a checkout.
 
+### Gzipped references
+
+Every `build_*.sh` takes a `.gz` FASTA or GTF and expands it before the indexer sees it, so a
+GENCODE download can be used as it arrives:
+
+```bash
+$ build_star.sh --gtf=gencode.v50.annotation.gtf.gz --output-dir=index GRCh38.primary_assembly.fa.gz
+```
+
+The indexes are named after the decompressed files, so `GRCh38.fa.gz` and `GRCh38.fa` produce the
+same output directory. This was measured, not assumed: STAR indexes built from the gzipped and
+plain forms of the same reference compare byte-identical, as do salmon's.
+
+The tools disagree about compressed input and only some of them say so. `salmon index` reads `.gz`
+directly and `kallisto index` documents that it does; `STAR --runMode genomeGenerate` refuses one
+with `Make sure the file is uncompressed (unzipped)`; `rsem-prepare-reference` fails with **`Number
+of transcripts in the reference is less than 1!`**, which never mentions compression and is the
+real reason this is handled in the scripts rather than left to the caller. `hisat2-build` does not
+document `.gz` support either way. Rather than keep a per-tool table correct against five tools
+that change independently, every script expands `.gz` the same way.
+
+The expanded copy goes in a private directory beside `--output-dir`, not under `$TMPDIR` — an
+uncompressed primary assembly is a few GB and `/tmp` on a compute node rarely holds one — and is
+removed on exit, including on failure. Budget the space where the index is being written.
+
 ## Tests
 
 ```bash

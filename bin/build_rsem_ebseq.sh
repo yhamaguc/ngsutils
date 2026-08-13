@@ -2,9 +2,9 @@
 
 #
 # Usage:
-#   build_rsem_ebseq.sh --gene2tx=gene2tx.tsv transcripts.fa
+#   build_rsem_ebseq.sh --gene2tx=gene2tx.tsv transcripts.fa.gz
 #
-#   find ref -name '*.transcripts.fa' \
+#   find ref -name '*.transcripts.fa.gz' \
 #     | xargs -P2 -n1 build_rsem_ebseq.sh --gene2tx=gene2tx.tsv --output-dir=index
 #
 
@@ -15,7 +15,7 @@ Usage:
   build_rsem_ebseq.sh (-h | --help)
 
 Arguments:
-  <fasta>  Transcript FASTA
+  <fasta>  Transcript FASTA, optionally gzipped
 
 Options:
   --gene2tx=<PATH>     Transcript-to-gene map passed to rsem-prepare-reference
@@ -23,6 +23,56 @@ Options:
                        it [default: .]
   -h --help            Show this message
 "
+
+#
+# Subs
+#
+# NOTE: STAR rejects a gzipped reference outright ('Make sure the file is
+#   uncompressed'), and rsem-prepare-reference fails with 'Number of transcripts
+#   in the reference is less than 1!', which does not point at the compression
+#   at all. hisat2-build does not document .gz support either. salmon and
+#   kallisto do read .gz directly, but every build_*.sh expands it the same way
+#   regardless -- one behaviour to document beats a per-tool table to keep
+#   correct against five tools that each change independently.
+tmp_dir=
+
+ungzip_() {
+  local src=$1
+  local work_dir=$2
+
+  ungzipped=${src}
+
+  case "${src}" in
+    *.gz) ;;
+    *) return 0 ;;
+  esac
+
+  if [ -z "${tmp_dir}" ]; then
+    # NOTE: expanded beside the output, not under ${TMPDIR} -- an uncompressed
+    #   primary assembly runs to a few GB and /tmp on a compute node rarely
+    #   holds one. A private directory also means an existing file of the same
+    #   name in the output directory is never overwritten, then deleted by the
+    #   cleanup below.
+    tmp_dir=$(mktemp -d "${work_dir}/.ngsutils_XXXXXX") || return 1
+  fi
+
+  ungzipped=${tmp_dir}/$(basename "${src}" .gz)
+  echo "Decompressing ${src} -> ${ungzipped}"
+
+  if command -v unpigz > /dev/null; then
+    unpigz -c "${src}" > "${ungzipped}"
+  else
+    gzip -dc "${src}" > "${ungzipped}"
+  fi
+}
+
+
+cleanup_() {
+  if [ -n "${tmp_dir}" ]; then
+    rm -rf "${tmp_dir}"
+  fi
+}
+
 
 #
 # Main
@@ -45,12 +95,25 @@ if [ -z "${parsed_}" ]; then
 fi
 eval "${parsed_}"
 
-fasta=${args[<fasta>]}
 output_dir=${args[--output-dir]}
-
-output_base=$(basename "$(basename "${fasta}" .fasta)" .fa)
 rsem_dir=${output_dir}/rsem
 ebseq_dir=${output_dir}/ebseq
+
+if [ ! -e "${output_dir}" ]; then
+  mkdir -p "${output_dir}"
+fi
+
+trap cleanup_ EXIT
+
+if ! ungzip_ "${args[<fasta>]}" "${output_dir}"; then
+  echo "Error: failed to decompress ${args[<fasta>]}" >&2
+  exit 1
+fi
+fasta=${ungzipped}
+
+# NOTE: the reference is named after the decompressed file, so a .gz input and
+#   its expanded form produce the same reference name.
+output_base=$(basename "$(basename "${fasta}" .fasta)" .fa)
 
 if [ ! -e "${rsem_dir}" ]; then
   mkdir -p "${rsem_dir}"
