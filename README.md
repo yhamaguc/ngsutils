@@ -71,6 +71,37 @@ Note that `pip install .` puts most of `bin/` on `PATH` through `script-files` i
 `pyproject.toml`, but `trim_fastp.sh` and `conv_sjouttab2bed.py` are not listed there and have to be
 run from a checkout.
 
+### STAR index: annotation and 1st-pass junctions
+
+`build_star.sh` covers both the annotated and the unannotated index — `--gtf` is optional, and
+`build_star_wo_gtf.sh` is gone (it was the same script with that one flag removed):
+
+```bash
+$ build_star.sh --gtf=gencode.v50.annotation.gtf.gz --output-dir=index GRCh38.primary_assembly.fa.gz
+$ build_star.sh --output-dir=index GRCh38.primary_assembly.fa.gz
+```
+
+For a multi-sample 2-pass, `--sjdb-file` takes the `SJ.out.tab` of a 1st-pass alignment and repeats
+for as many runs as should contribute junctions. STAR reads `SJ.out.tab` as-is — it uses the first
+four columns (chromosome, intron start, intron end, strand) and ignores the rest:
+
+```bash
+$ find pass1 -name '*SJ.out.tab' | sed 's|^|--sjdb-file=|' \
+    | xargs build_star.sh --gtf=gencode.v50.annotation.gtf.gz --output-dir=index GRCh38.fa.gz
+```
+
+The junctions are inserted at STAR's default `--sjdbOverhang` of 100, which suits reads of about
+101 bp; longer reads want it set to read length − 1, which means editing the script.
+
+Two cautions on the generated directory name. It gains a `.sj<n>` suffix recording **how many**
+junction files went in, not which ones, so two different 1st-pass sample sets of the same size land
+in the same directory and the second build overwrites the first — give them separate `--output-dir`.
+And the index directory is named after the inputs, not after the pass, so a 1st-pass index built
+from the same FASTA and GTF is a different directory only because of that suffix.
+
+Every input path is checked for existence before STAR is started, and all missing ones are reported
+in one go rather than one per re-run.
+
 ### Gzipped references
 
 Every `build_*.sh` takes a `.gz` FASTA or GTF and expands it before the indexer sees it, so a

@@ -3,22 +3,31 @@
 #
 # Usage:
 #   build_star.sh --gtf=gencode.v50.annotation.gtf.gz GRCh38.fa.gz
+#   build_star.sh GRCh38.fa.gz
 #
 #   find ref -name '*.fa.gz' \
 #     | xargs -P2 -n1 build_star.sh --gtf=gencode.v50.annotation.gtf.gz --output-dir=index
 #
+#   # 2-pass: re-build with the junctions found by a 1st-pass alignment
+#   find pass1 -name '*SJ.out.tab' | sed 's|^|--sjdb-file=|' \
+#     | xargs build_star.sh --gtf=gencode.v50.annotation.gtf.gz --output-dir=index GRCh38.fa.gz
+#
 
-DOC="Build a STAR genome index with a gene annotation
+DOC="Build a STAR genome index, optionally with a gene annotation and 1st-pass junctions
 
 Usage:
-  build_star.sh --gtf=<PATH> [--output-dir=<PATH>] [--threads=<n>] <fasta>
+  build_star.sh [--gtf=<PATH>] [--sjdb-file=<PATH>...] [--output-dir=<PATH>] [--threads=<n>] <fasta>
   build_star.sh (-h | --help)
 
 Arguments:
   <fasta>  Genome FASTA, optionally gzipped
 
 Options:
-  --gtf=<PATH>         Gene annotation GTF, optionally gzipped
+  --gtf=<PATH>         Gene annotation GTF, optionally gzipped; omit to build
+                       an index without an annotation
+  --sjdb-file=<PATH>   Splice junctions from a 1st-pass alignment (SJ.out.tab),
+                       optionally gzipped; repeat the option to insert the
+                       junctions of several 1st-pass runs
   --output-dir=<PATH>  Parent of the generated genome directory [default: .]
   --threads=<n>        Threads [default: 8]
   -h --help            Show this message
@@ -36,9 +45,13 @@ Options:
 #   correct against five tools that each change independently.
 tmp_dir=
 
+# NOTE: ${out_name} is the one place this copy of ungzip_ differs from the other
+#   build_*.sh -- several SJ.out.tab arrive as per-sample files that all share
+#   that basename, so the caller has to name the expanded copies apart.
 ungzip_() {
   local src=$1
   local work_dir=$2
+  local out_name=$3
 
   ungzipped=${src}
 
@@ -56,7 +69,11 @@ ungzip_() {
     tmp_dir=$(mktemp -d "${work_dir}/.ngsutils_XXXXXX") || return 1
   fi
 
-  ungzipped=${tmp_dir}/$(basename "${src}" .gz)
+  if [ -z "${out_name}" ]; then
+    out_name=$(basename "${src}" .gz)
+  fi
+
+  ungzipped=${tmp_dir}/${out_name}
   echo "Decompressing ${src} -> ${ungzipped}"
 
   if command -v unpigz > /dev/null; then
@@ -97,27 +114,76 @@ eval "${parsed_}"
 
 output_dir=${args[--output-dir]}
 
+# NOTE: a repeatable option lands in the associative array as one entry per
+#   occurrence -- args[--sjdb-file,0], [,1], ... -- with the count in
+#   args[--sjdb-file,#]. Nothing repeated leaves the count at 0.
+n_sjdb_file=${args[--sjdb-file,#]}
+
+# NOTE: this is the choke point for input existence. Everything below assumes
+#   the paths resolve; STAR is only reached once they do.
+inputs=("${args[<fasta>]}")
+if [ -n "${args[--gtf]}" ]; then
+  inputs+=("${args[--gtf]}")
+fi
+for i in $(seq 0 $(( n_sjdb_file - 1 ))); do
+  inputs+=("${args[--sjdb-file,${i}]}")
+done
+
+n_missing=0
+for input in "${inputs[@]}"; do
+  if [ ! -f "${input}" ]; then
+    echo "Error: no such file: ${input}" >&2
+    n_missing=$(( n_missing + 1 ))
+  fi
+done
+if [ "${n_missing}" -gt 0 ]; then
+  exit 1
+fi
+
 if [ ! -e "${output_dir}" ]; then
   mkdir -p "${output_dir}"
 fi
 
 trap cleanup_ EXIT
 
-if ! ungzip_ "${args[<fasta>]}" "${output_dir}"; then
+if ! ungzip_ "${args[<fasta>]}" "${output_dir}" ""; then
   echo "Error: failed to decompress ${args[<fasta>]}" >&2
   exit 1
 fi
 fasta=${ungzipped}
 
-if ! ungzip_ "${args[--gtf]}" "${output_dir}"; then
-  echo "Error: failed to decompress ${args[--gtf]}" >&2
-  exit 1
+gtf=
+if [ -n "${args[--gtf]}" ]; then
+  if ! ungzip_ "${args[--gtf]}" "${output_dir}" ""; then
+    echo "Error: failed to decompress ${args[--gtf]}" >&2
+    exit 1
+  fi
+  gtf=${ungzipped}
 fi
-gtf=${ungzipped}
+
+sjdb_files=()
+for i in $(seq 0 $(( n_sjdb_file - 1 ))); do
+  sjdb_file=${args[--sjdb-file,${i}]}
+  if ! ungzip_ "${sjdb_file}" "${output_dir}" "${i}.$(basename "${sjdb_file}" .gz)"; then
+    echo "Error: failed to decompress ${sjdb_file}" >&2
+    exit 1
+  fi
+  sjdb_files+=("${ungzipped}")
+done
 
 # NOTE: the index is named after the decompressed files, so a .gz input and its
 #   expanded form produce the same genome directory.
-output_base=$(basename "$(basename "${fasta}" .fasta)" .fa).$(basename "${gtf}" .gtf)
+output_base=$(basename "$(basename "${fasta}" .fasta)" .fa)
+if [ -n "${gtf}" ]; then
+  output_base=${output_base}.$(basename "${gtf}" .gtf)
+fi
+# NOTE: the suffix records how many junction files went in, not which ones --
+#   two different 1st-pass sample sets of the same size land in the same genome
+#   directory and the second build overwrites the first. Give them separate
+#   --output-dir when that matters.
+if [ "${n_sjdb_file}" -gt 0 ]; then
+  output_base=${output_base}.sj${n_sjdb_file}
+fi
 
 # NOTE: --genomeDir and mkdir must name the same directory. They did not until
 #   2026-08-14: --genomeDir expanded ${output_basel}, a typo for ${output_base},
@@ -135,8 +201,19 @@ cmd_=(
   --runMode genomeGenerate
   --genomeDir "${genome_dir}"
   --genomeFastaFiles "${fasta}"
-  --sjdbGTFfile "${gtf}"
 )
+
+if [ -n "${gtf}" ]; then
+  cmd_+=(--sjdbGTFfile "${gtf}")
+fi
+
+# NOTE: STAR reads SJ.out.tab as-is here -- it takes the first four columns
+#   (chr, intron start, intron end, strand) and ignores the rest. The junctions
+#   are inserted with --sjdbOverhang, left at STAR's default of 100; reads much
+#   longer than 101 bp want it set to read length - 1 at build time.
+if [ "${n_sjdb_file}" -gt 0 ]; then
+  cmd_+=(--sjdbFileChrStartEnd "${sjdb_files[@]}")
+fi
 
 echo "CMD: ${cmd_[*]}"
 "${cmd_[@]}"

@@ -35,7 +35,6 @@ script-files = [
   "bin/build_rsem_ebseq.sh",
   "bin/build_salmon.sh",
   "bin/build_star.sh",
-  "bin/build_star_wo_gtf.sh",
   "bin/conv_tximport.R",
   "bin/de_deseq2.R",
   "bin/download_gencode_hs.sh",
