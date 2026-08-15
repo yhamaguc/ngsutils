@@ -8,15 +8,19 @@
 #   find ref -name '*.fa.gz' \
 #     | xargs -P2 -n1 build_star.sh --gtf=gencode.v50.annotation.gtf.gz --output-dir=index
 #
-#   # 2-pass: re-build with the junctions found by a 1st-pass alignment
-#   find pass1 -name '*SJ.out.tab' | sed 's|^|--sjdb-file=|' \
-#     | xargs build_star.sh --gtf=gencode.v50.annotation.gtf.gz --output-dir=index GRCh38.fa.gz
+#   # 2-pass: re-build with the junctions found by a 1st-pass alignment.
+#   # Filter them first -- the unfiltered junctions of a whole cohort overrun
+#   # --limitSjdbInsertNsj, and most of them are 1-read noise. --sjdb-overhang is
+#   # mate length - 1; 47 is for 48 bp mates.
+#   find pass1 -name 'SJ.out.tab' | xargs merge_sjouttab2sjdb.py --min-cov=2 > sjdb.tab
+#   build_star.sh --gtf=gencode.v50.annotation.gtf.gz --sjdb-file=sjdb.tab \
+#     --sjdb-overhang=47 --output-dir=index GRCh38.fa.gz
 #
 
 DOC="Build a STAR genome index, optionally with a gene annotation and 1st-pass junctions
 
 Usage:
-  build_star.sh [--gtf=<PATH>] [--sjdb-file=<PATH>...] [--output-dir=<PATH>] [--threads=<n>] <fasta>
+  build_star.sh [--gtf=<PATH>] [--sjdb-file=<PATH>...] [--sjdb-overhang=<n>] [--output-dir=<PATH>] [--threads=<n>] <fasta>
   build_star.sh (-h | --help)
 
 Arguments:
@@ -28,6 +32,13 @@ Options:
   --sjdb-file=<PATH>   Splice junctions from a 1st-pass alignment (SJ.out.tab),
                        optionally gzipped; repeat the option to insert the
                        junctions of several 1st-pass runs
+  --sjdb-overhang=<n>  Donor/acceptor sequence length inserted on each side of
+                       every junction. STAR's ideal value is the mate length
+                       minus 1, taken over every sample that will be aligned
+                       against this index. Too large only costs index size and
+                       RAM; too small silently loses the reads whose overhang
+                       exceeds it, so use the longest mate, not the average
+                       [default: 100]
   --output-dir=<PATH>  Parent of the generated genome directory [default: .]
   --threads=<n>        Threads [default: 8]
   -h --help            Show this message
@@ -177,13 +188,11 @@ output_base=$(basename "$(basename "${fasta}" .fasta)" .fa)
 if [ -n "${gtf}" ]; then
   output_base=${output_base}.$(basename "${gtf}" .gtf)
 fi
-# NOTE: the suffix records how many junction files went in, not which ones --
-#   two different 1st-pass sample sets of the same size land in the same genome
-#   directory and the second build overwrites the first. Give them separate
-#   --output-dir when that matters.
-if [ "${n_sjdb_file}" -gt 0 ]; then
-  output_base=${output_base}.sj${n_sjdb_file}
-fi
+# NOTE: the name records the FASTA and the GTF only -- inserted 1st-pass
+#   junctions leave no trace in it. An index built with --sjdb-file and one
+#   built without it therefore land in the same genome directory, and the later
+#   build overwrites the earlier. Give them separate --output-dir when both are
+#   wanted at once.
 
 # NOTE: --genomeDir and mkdir must name the same directory. They did not until
 #   2026-08-14: --genomeDir expanded ${output_basel}, a typo for ${output_base},
@@ -207,12 +216,24 @@ if [ -n "${gtf}" ]; then
   cmd_+=(--sjdbGTFfile "${gtf}")
 fi
 
-# NOTE: STAR reads SJ.out.tab as-is here -- it takes the first four columns
-#   (chr, intron start, intron end, strand) and ignores the rest. The junctions
-#   are inserted with --sjdbOverhang, left at STAR's default of 100; reads much
-#   longer than 101 bp want it set to read length - 1 at build time.
+# NOTE: the documented input is 4 columns -- chr, the 1-based first and last base
+#   of the intron, and the strand as +/-/. (manual 2.2.4). A raw SJ.out.tab also
+#   works, since 9.1 says to pass those files directly, so STAR must ignore the
+#   remaining columns and accept the numeric strand -- the manual never states
+#   that outright. bin/merge_sjouttab2sjdb.py writes the documented form and is
+#   also where the cohort-wide read-count filter lives. Never pass BED here: BED
+#   starts are one base short of the intron and STAR inserts them silently.
 if [ "${n_sjdb_file}" -gt 0 ]; then
   cmd_+=(--sjdbFileChrStartEnd "${sjdb_files[@]}")
+fi
+
+# NOTE: --sjdbOverhang only means anything when junctions are inserted, so it is
+#   passed only then. The value is baked into the index and recorded by STAR in
+#   the genome directory's genomeParameters.txt; the directory name does not
+#   carry it, so two indices differing only in this value need separate
+#   --output-dir.
+if [ -n "${gtf}" ] || [ "${n_sjdb_file}" -gt 0 ]; then
+  cmd_+=(--sjdbOverhang "${args[--sjdb-overhang]}")
 fi
 
 echo "CMD: ${cmd_[*]}"
