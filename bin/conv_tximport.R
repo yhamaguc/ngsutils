@@ -3,51 +3,68 @@
 "Convert any tool results to tximport count matrix
 
 Usage:
-  conv_tximport.R --gtf <PATH> --type <TYPE> [--output-dir <PATH>] <input_dirs>...
+  conv_tximport.R --gtf <PATH> --type <TYPE> [--output-dir <PATH>] <input-dir>...
+
+Arguments:
+  <input-dir>  : Directory containing count data files;
+                 kallisto: abundance.h5, RSEM: quantified.isoforms.results, StringTie: t_data.ctab, Salmon: quant.sf
 
 Options:
   --gtf <PATH>         : GTF file
   --type <TYPE>        : stringtie/kallisto/rsem/salmon
   --output-dir <PATH>  : Output directory [default: .]
-  <input_dirs>         : The directories containing count data file;
-                         kallisto: abundance.h5, RSEM: quantified.isoforms.results, StringTie: t_data.ctab, Salmon: quant.sf
 " -> doc
 
 # %%
-# Requires
+# Prepare
 #
-library(tximport)
-library(rtracklayer)
-library(tidyverse)
-library(docopt)
+suppressPackageStartupMessages({
+  library(tximport)
+  library(rtracklayer)
+  library(tidyverse)
+  library(ggcorrplot)
+  library(docopt)
+})
+
+
+# %%
+# Constants
+#
+
+# NOTE: ggcorrplot's `lab` prints one number per sample pair, so the label count
+#   grows with the square of the sample count. A dozen samples is legible; a
+#   448-sample cohort would put ~200,000 text elements into a single SVG, which
+#   is unreadable and slow to render. Above this many samples the figure is still
+#   drawn, only the printed numbers are dropped.
+MAX_SAMPLES_FOR_CORR_LABELS <- 30
 
 
 # %%
 # Subs
 #
 load_gtf <- function(path, cols, types = c("transcript")) {
-  gtf <- path %>% readGFF(version = 2L, tags = cols, filter = list(type = types))
-  gtf <- gtf %>% select(all_of(cols))
+  gtf <- path |> readGFF(version = 2L, tags = cols, filter = list(type = types))
+  gtf <- gtf |> select(all_of(cols))
   return(gtf)
 }
 
 
 load_data <- function(type, inputs, t2g) {
-  sample_names <- inputs %>%
-    dirname() %>%
+  sample_names <- inputs |>
+    dirname() |>
     basename()
   names(inputs) <- sample_names
 
-  # NOTE: For RSEM recommended befor import cut off non-required columns except 1-8
+  # NOTE: For RSEM recommended before import cut off non-required columns except 1-8
   # cat rsem.isoforms.results | cut -f 1-8
-  txi.tx <- inputs %>%
+  txi.tx <- inputs |>
     tximport(
       type = type,
       txIn = TRUE,
       txOut = TRUE
     )
 
-  txi.gene <- inputs %>%
+  txi.gene <- inputs |>
     tximport(
       type = type,
       txIn = TRUE,
@@ -89,18 +106,26 @@ vst_ <- function(txi) {
 }
 
 
+draw_corr_ <- function(mat) {
+  ggcorrplot(
+    cor(mat, method = "spearman"),
+    lab = ncol(mat) <= MAX_SAMPLES_FOR_CORR_LABELS
+  )
+}
+
+
 # %%
 # Main
 #
-
 argv <- docopt(doc)
 
-message(argv)
-
-gtf_path <- argv$gtf
-output_dir <- argv$`output_dir`
+# NOTE: docopt maps <input-dir> to input_dir and --output-dir to output_dir
+gtf <- argv$gtf
 type <- argv$type
-input_dirs <- argv$input_dirs
+output_dir <- argv$output_dir
+input_dir <- argv$input_dir
+
+message("Input: gtf=", gtf, " output_dir=", output_dir)
 
 t2p <- list(
   kallisto = "abundance.h5",
@@ -109,17 +134,17 @@ t2p <- list(
   salmon = "quant.sf"
 )
 
-inputs <- list.files(
-  input_dirs, pattern = t2p[[type]],
+inputs <- list.files(input_dir,
+  pattern = t2p[[type]],
   full.names = TRUE,
   recursive = TRUE
 )
 
 t2g <- load_gtf(
-  gtf_path,
+  gtf,
   cols = c("transcript_id", "gene_id", "gene_name"),
   types = c("exon")
-) %>% distinct()
+) |> distinct()
 
 results <- load_data(type, inputs, t2g)
 
@@ -127,24 +152,24 @@ dir.create(output_dir, showWarnings = FALSE, recursive = TRUE)
 
 saveRDS(results, file = file.path(output_dir, "txi.rds"))
 
-counts_(results$transcript) %>% write.table(
+counts_(results$transcript) |> write.table(
   file = file.path(output_dir, "count_matrix_transcript.tsv"),
   quote = FALSE,
   sep = "\t",
   col.names = NA
 )
 
-counts_(results$gene) %>% write.table(
+counts_(results$gene) |> write.table(
   file = file.path(output_dir, "count_matrix_gene.tsv"),
   quote = FALSE,
   sep = "\t",
   col.names = NA
 )
 
-vst_transcript <- vst_(results$transcript) %>%
+vst_transcript <- vst_(results$transcript) |>
   SummarizedExperiment::assay()
 
-vst_transcript %>%
+vst_transcript |>
   write.table(
     file = file.path(output_dir, "vst_transcript.tsv"),
     quote = FALSE,
@@ -152,13 +177,15 @@ vst_transcript %>%
     col.names = NA
   )
 
-ggcorrplot::ggcorrplot(cor(vst_transcript, method = "spearman"), lab = TRUE) %>%
-  ggsave(filename = file.path(output_dir, "vst_corr_transcript.svg"), plot = .)
+ggsave(
+  filename = file.path(output_dir, "vst_corr_transcript.svg"),
+  plot = draw_corr_(vst_transcript)
+)
 
-vst_gene <- vst_(results$gene) %>%
+vst_gene <- vst_(results$gene) |>
   SummarizedExperiment::assay()
 
-vst_gene %>%
+vst_gene |>
   write.table(
     file = file.path(output_dir, "vst_gene.tsv"),
     quote = FALSE,
@@ -166,5 +193,7 @@ vst_gene %>%
     col.names = NA
   )
 
-ggcorrplot::ggcorrplot(cor(vst_gene, method = "spearman"), lab = TRUE) %>%
-  ggsave(filename = file.path(output_dir, "vst_corr_gene.svg"), plot = .)
+ggsave(
+  filename = file.path(output_dir, "vst_corr_gene.svg"),
+  plot = draw_corr_(vst_gene)
+)
