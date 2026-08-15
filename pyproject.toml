@@ -21,7 +21,15 @@ dependencies = [
 ngsutils = "ngsutils.cli:main"
 
 [tool.setuptools.packages.find]
+# NOTE: without include/namespaces, the pyproject form of packages.find defaults
+#   to namespaces = true and so discovers every directory here as a package --
+#   bin, tests, and build itself. Discovering build made each build copy the tree
+#   into build/lib, which then contained build/lib/build/lib/... ; the 0.2.0
+#   install shipped 9 levels of that, plus bin/ and tests/ into site-packages,
+#   plus scripts that had been deleted from the repo.
 where = ["."]
+include = ["ngsutils*"]
+namespaces = false
 
 [tool.setuptools.package-data]
 ngsutils = ["data/*.pkl"]
@@ -35,10 +43,13 @@ script-files = [
   "bin/build_rsem_ebseq.sh",
   "bin/build_salmon.sh",
   "bin/build_star.sh",
+  "bin/conv_sjouttab2bed.py",
   "bin/conv_tximport.R",
   "bin/de_deseq2.R",
   "bin/download_gencode_hs.sh",
   "bin/gtf2bed.sh",
+  "bin/merge_sjouttab2sjdb.py",
   "bin/pbrun_fq2bam.sh",
-  "bin/quant_salmon.sh"
+  "bin/quant_salmon.sh",
+  "bin/trim_fastp.sh"
 ]
