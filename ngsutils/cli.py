@@ -16,6 +16,7 @@ from docopt import docopt
 
 _SUBCOMMANDS = {
     "abs2rel": "ngsutils.abs2rel:main",
+    "align_star": "ngsutils.align_star:main",
     "extract_splice_sites": "ngsutils.extract_splice_sites:main",
     "gene2tx": "ngsutils.gene2tx:main",
     "get_biomart": "ngsutils.get_biomart:main",
@@ -29,6 +30,7 @@ _SUBCOMMANDS = {
     "igv_set_track_height": "ngsutils.igv_set_track_height:main",
     "maf2bed": "ngsutils.maf2bed:main",
     "name2id": "ngsutils.name2id:main",
+    "sort_star_bam": "ngsutils.sort_star_bam:main",
     "sqlite2gtf": "ngsutils.sqlite2gtf:main",
     "write_coverage_track": "ngsutils.write_coverage_track:main",
 }
