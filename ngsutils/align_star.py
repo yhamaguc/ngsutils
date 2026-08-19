@@ -21,7 +21,7 @@ was for two specific reasons, both of which had already cost a run:
      tests/test_align_star.py covers the parts that decide what STAR is asked to do.
 
 Sorting is a separate step
---------------------------
+==========================
 STAR's sorter is in-memory and bounded by --limitBAMsortRAM, its requirement scales with
 read count, and it fails only AFTER the whole mapping phase has been paid for. Any fixed
 ceiling is therefore one large sample away from an expensive crash. `--sort-with none`
@@ -31,8 +31,8 @@ different resources, or moved to another host without repeating the alignment --
 workflow it becomes its own rule with its own resource request.
 
 Two 2-pass schemes, which are not substitutes
----------------------------------------------
---make-sjdb drives a COHORT-level 2-pass: run it over every sample, merge the SJ.out.tab
+=============================================
+The --make-sjdb flag drives a COHORT-level 2-pass: run it over every sample, merge the SJ.out.tab
 files, rebuild one index from them, then align against that. --two-pass is STAR's own
 PER-SAMPLE 2-pass (--twopassMode Basic), as GDC runs it. They compose. The cohort scheme
 requires that both of its passes use the SAME --preset: the 1st pass decides which
@@ -71,9 +71,16 @@ Options:
                                ceiling. none: stop after writing Aligned.out.bam and
                                leave the coordinate sort to `ngsutils sort_star_bam`,
                                which spills to disk. Use none whenever the sample might
-                               be large -- see "Sorting" below. [default: star]
+                               be large -- see "Sorting" above. [default: star]
   --sort-ram=<sort-ram>        Bytes for STAR's internal BAM sort. Ignored when sort-with
                                is none. [default: 160000000000]
+  --layout=<layout>            paired, single, or auto. auto reads the layout out of the
+                               BAM with one samtools flagstat, which decodes it whole -- once
+                               per invocation, so twice per sample across a 1st and 2nd
+                               pass, on top of the two extractions. A
+                               caller that already knows the layout (a sample table has it)
+                               should say so. FASTQ input ignores this: whether fastq2 was
+                               given IS the layout there. [default: auto]
   --read-files-command=<cmd>   Decompressor for FASTQ input, e.g. 'zcat' or 'pigz -d -c'.
                                Auto-selected from the .gz suffix when not given; pass
                                'none' to force no decompression. FASTQ input only.
@@ -89,9 +96,11 @@ from __future__ import annotations
 
 import os
 import re
+import signal
 import shlex
 import subprocess
 import sys
+import time
 from pathlib import Path
 
 from docopt import docopt
@@ -113,6 +122,9 @@ NO_DECOMPRESSION = "none"
 AUTO_DECOMPRESSION = "auto"
 
 # "none" leaves the coordinate sort to ngsutils sort_star_bam, which owns it.
+LAYOUTS = ("paired", "single", "auto")
+AUTO_LAYOUT = "auto"
+
 SORTERS = ("star", "none")
 NO_SORT = "none"
 
@@ -135,6 +147,24 @@ STAR_TMP_SUFFIX = "_STARtmp"
 GENE_INFO = "geneInfo.tab"
 
 INPUT_READS_PATTERN = re.compile(r"Number of input reads\s*\|\s*(\d+)")
+
+# How often run_watched() checks on the two processes. Small enough that a dead
+# extraction is caught in about a second, large enough to cost nothing over hours.
+WATCHDOG_INTERVAL_SECONDS = 1.0
+
+# samtools flagstat's first field is QC-passed; both counts come from one decode.
+#
+# NOTE: the denominator is PRIMARY, not "in total". Measured 2026-08-20 on a real TCGA-UVM
+#   BAM: in total 40,000 = primary 15,295 + secondary 24,705, while "paired in sequencing" is
+#   15,295 -- it counts primary records only. Comparing paired against "in total" therefore
+#   reports every multimapping paired BAM as a mix of paired and unpaired reads, which would
+#   have refused perfectly ordinary GDC input. Against primary the two agree exactly.
+# NOTE: BOTH fields are captured and summed. bamtofastq does not exclude QC-failed records
+#   (0x200), so the counts have to describe what it will actually extract -- reading the
+#   QC-passed field alone would call a BAM whose paired records are all QC-failed
+#   single-end, and then extract and map its mates as independent reads.
+PRIMARY_PATTERN = re.compile(r"^(\d+) \+ (\d+) primary$", re.MULTILINE)
+PAIRED_PATTERN = re.compile(r"^(\d+) \+ (\d+) paired in sequencing", re.MULTILINE)
 
 # %%
 # Presets
@@ -360,6 +390,7 @@ def validate(
     read_files_command: str,
     sort_with: str,
     preset: str,
+    layout: str = AUTO_LAYOUT,
 ) -> str:
     """Refuse everything that would otherwise fail late or silently. Returns the kind."""
     if preset not in PRESETS:
@@ -370,6 +401,8 @@ def validate(
         raise AlignError(
             f"unknown --sort-with {sort_with!r} (expected: {', '.join(SORTERS)})"
         )
+    if layout not in LAYOUTS:
+        raise AlignError(f"unknown --layout {layout!r} (expected: {', '.join(LAYOUTS)})")
     if not input_path.exists():
         raise AlignError(f"input not found: {input_path}")
     if not genome_dir.is_dir():
@@ -440,21 +473,64 @@ def bamtofastq_argv(bam: str, targets: list[str], paired: bool) -> list[str]:
     return ["bamtofastq", f"filename={bam}", "collate=0"]
 
 
+def resolve_layout(requested: str, bam: Path | None) -> bool:
+    """True when the input is paired. Reads the BAM only when the caller says nothing.
+
+    NOTE: `auto` is the expensive path -- see the --layout note. It is kept as the default
+      because a wrong layout is worse than a slow one: it maps every mate as an independent
+      read, silently.
+    """
+    if requested == "paired":
+        return True
+    if requested == "single":
+        return False
+    return detect_bam_layout(bam)
+
+
 def detect_bam_layout(bam: Path) -> bool:
-    """True when the BAM holds paired reads.
+    """True when the BAM holds paired reads, refusing a BAM that holds both.
+
+    NOTE: THIS IS NOT THE CHOKE POINT FOR THE WORKFLOWS. Both of them pass --layout=paired
+      from the sample table, so this function is never reached there and nothing on that path
+      validates that a BAM really is purely paired. The owner of that invariant is the
+      generator of processed/metadata/samples.tsv, which does not exist yet (see the
+      gdcdata-prep progress log): it must assert layout purity per BAM, because the
+      collate=1 F=/F2= extraction below captures no unpaired category and would drop those
+      reads silently -- and assert_reads_were_mapped only refuses ZERO reads, not fewer.
+      Until that generator exists, the guarantee rests on GDC's layout field being right.
 
     samtools is called on its own and its exit code checked, because a failed count must
     not fall through to "single-end" -- that would map every mate as an independent read.
     """
+    # NOTE: flagstat, not two `view -c` calls. Both numbers come from ONE decode of the
+    #   whole BAM; counting twice doubled the cost of the very thing the --layout option
+    #   exists to let a caller skip.
     result = subprocess.run(
-        ["samtools", "view", "-c", "-f", "1", str(bam)],
-        capture_output=True,
-        text=True,
-        check=False,
+        ["samtools", "flagstat", str(bam)], capture_output=True, text=True, check=False
     )
     if result.returncode != 0 or not result.stdout.strip():
-        raise AlignError(f"samtools view failed on {bam}: {result.stderr.strip()}")
-    return int(result.stdout.strip()) > 0
+        raise AlignError(f"samtools flagstat failed on {bam}: {result.stderr.strip()}")
+
+    counts = {}
+    for label, pattern in (("primary", PRIMARY_PATTERN), ("paired", PAIRED_PATTERN)):
+        match = pattern.search(result.stdout)
+        if match is None:
+            raise AlignError(
+                f"could not read the {label} count out of samtools flagstat on {bam}"
+            )
+        counts[label] = int(match.group(1)) + int(match.group(2))
+
+    # NOTE: "any record is paired" is not enough. A BAM holding both kinds would be treated
+    #   as paired, and the collate=1 F/F2 extraction captures no unpaired category (no O=,
+    #   O2= or S=), so those reads would vanish without a word. Refuse instead.
+    if 0 < counts["paired"] < counts["primary"]:
+        raise AlignError(
+            f"{bam} mixes paired ({counts['paired']}) and unpaired "
+            f"({counts['primary'] - counts['paired']}) primary records. The extraction here "
+            f"handles one or the other; split the BAM, or pass --layout to state which to "
+            f"treat it as."
+        )
+    return counts["paired"] > 0
 
 
 def start_extraction(bam: Path, targets: list[str], paired: bool) -> subprocess.Popen:
@@ -528,6 +604,70 @@ def discard_partial_outputs(out_prefix: str, outputs: list[str]) -> None:
 # Main
 
 
+def install_signal_handlers() -> None:
+    """Turn the signals that actually kill this into exceptions, so the cleanup runs.
+
+    NOTE: Python's default SIGTERM handling terminates the process WITHOUT unwinding -- no
+      finally, no except. Snakemake cancels jobs with SIGTERM, so without this the reaping
+      of bamtofastq and the removal of partial output never happen on the most common
+      abnormal exit. SIGKILL cannot be caught and is why mkfifo tolerates a leftover FIFO.
+
+    Two windows remain, knowingly: a second signal arriving during the cleanup itself, and
+    SIGKILL.
+    """
+    def raise_system_exit(number, frame):
+        raise SystemExit(128 + number)
+
+    for number in (signal.SIGTERM, signal.SIGINT, signal.SIGHUP):
+        # NOTE: never override an inherited SIG_IGN. `nohup snakemake ... &` sets SIGHUP to
+        #   ignore and every child inherits that; installing a handler re-enables the signal,
+        #   so closing the terminal would kill every in-flight alignment and discard its
+        #   output -- the handler would turn a deliberately ignored signal into a job killer.
+        #   Same reasoning protects SIGINT for a backgrounded run.
+        if signal.getsignal(number) is not signal.SIG_IGN:
+            signal.signal(number, raise_system_exit)
+
+
+def run_watched(
+    argv: list[str], extraction: subprocess.Popen | None, input_path: Path
+) -> int:
+    """Run STAR, watching the extraction it reads from, and return STAR's exit status.
+
+    NOTE: a poll taken just once, before STAR starts, cannot see the failure that matters.
+      bamtofastq has to open the BAM, initialise libmaus and parse the header before it can
+      die on a corrupt one -- tens of milliseconds -- by which time STAR is already blocked
+      in open() on a FIFO nothing will ever write to, and this process is blocked in wait().
+      A hang is invisible to a workflow that only watches exit codes, and it holds a slot
+      until a person notices. So both processes are polled for as long as STAR runs.
+    NOTE: an extraction that exits 0 while STAR is still mapping is the normal end of the
+      stream, not a failure. Only a non-zero exit kills STAR here.
+    """
+    star = subprocess.Popen(argv)
+    try:
+        while True:
+            status = star.poll()
+            if status is not None:
+                return status
+
+            if extraction is not None:
+                extraction_status = extraction.poll()
+                if extraction_status is not None and extraction_status != 0:
+                    star.kill()
+                    star.wait()
+                    raise AlignError(
+                        f"bamtofastq exited {extraction_status} while STAR was running; "
+                        f"STAR was killed rather than left to map a truncated stream or to "
+                        f"block on a FIFO that will never be written: {input_path}"
+                    )
+
+            time.sleep(WATCHDOG_INTERVAL_SECONDS)
+    except BaseException:
+        if star.poll() is None:
+            star.kill()
+            star.wait()
+        raise
+
+
 def align(
     *,
     input_path: Path,
@@ -542,6 +682,7 @@ def align(
     sort_with: str,
     sort_ram: str,
     read_files_command_requested: str,
+    layout: str = AUTO_LAYOUT,
 ) -> int:
     kind = validate(
         input_path=input_path,
@@ -550,6 +691,7 @@ def align(
         read_files_command=read_files_command_requested,
         sort_with=sort_with,
         preset=preset,
+        layout=layout,
     )
     if not make_sjdb:
         assert_gene_info(genome_dir, preset)
@@ -567,10 +709,13 @@ def align(
     streaming = kind == "bam" and not two_pass
 
     if kind == "bam":
-        paired = detect_bam_layout(input_path)
+        paired = resolve_layout(layout, input_path)
         read_files = (
-            [f"{out_prefix}.R1.fq", f"{out_prefix}.R2.fq"] if paired
-            else [f"{out_prefix}.fq"]
+            # Not ".R1.fq": with an out-prefix ending in "/" a leading dot makes the FIFO
+            # invisible to a bare ls, which is exactly when someone is looking for a
+            # leftover from a killed run.
+            [f"{out_prefix}R1.fq", f"{out_prefix}R2.fq"] if paired
+            else [f"{out_prefix}reads.fq"]
         )
         temp_read_files = list(read_files)
         read_files_command = []
@@ -606,6 +751,9 @@ def align(
         if kind == "bam":
             if streaming:
                 for target in read_files:
+                    # A SIGKILLed run leaves the FIFO behind, and mkfifo would then die on
+                    # FileExistsError -- a retry must not need a second retry.
+                    Path(target).unlink(missing_ok=True)
                     os.mkfifo(target)
             else:
                 print("Note    : --two-pass cannot stream; extracting FASTQ to disk first")
@@ -627,14 +775,25 @@ def align(
             read_files_command=read_files_command,
         )
         print(f"CMD: {shlex.join(argv)}")
-        status = subprocess.run(argv, check=False).returncode
+        status = run_watched(argv, extraction if streaming else None, input_path)
 
         if kind == "bam" and streaming:
             if status != 0:
-                # STAR may have died before opening the FIFOs, leaving bamtofastq blocked
-                # on open() -- kill it or the wait never returns.
-                extraction.kill()
-                extraction.wait()
+                # NOTE: poll BEFORE killing. When both die, STAR's death is usually observed
+                #   first (the watchdog polls it first) while bamtofastq's own non-zero exit
+                #   is the likelier root cause -- a truncated BAM. Killing first replaces that
+                #   status with the signal and loses the only diagnosis this tool can offer.
+                extraction_status = extraction.poll()
+                if extraction_status is None:
+                    # STAR may have died before opening the FIFOs, leaving bamtofastq blocked
+                    # on open() -- kill it or the wait never returns.
+                    extraction.kill()
+                    extraction.wait()
+                elif extraction_status != 0:
+                    raise AlignError(
+                        f"bamtofastq exited {extraction_status} and STAR then failed (exit "
+                        f"{status}); the extraction is the likelier cause: {input_path}"
+                    )
             elif extraction.wait() != 0:
                 # A bamtofastq that died mid-stream looks like EOF to STAR, which then
                 # exits 0 on truncated input. This check is the only thing separating the
@@ -647,10 +806,22 @@ def align(
         reads = assert_reads_were_mapped(out_prefix, kind, read_files_command)
         assert_outputs_exist(outputs)
 
-    except AlignError:
+    except BaseException:
+        # NOTE: not just AlignError. A missing STAR shim raises FileNotFoundError and a
+        #   a signal we installed a handler for raises SystemExit (see
+        #   install_signal_handlers), and either would otherwise leave a partial SJ.out.tab
+        #   or BAM behind for a consumer to find. Snakemake removes a failed job's DECLARED
+        #   outputs, but standalone use has no such backstop.
         discard_partial_outputs(out_prefix, outputs)
         raise
     finally:
+        # NOTE: unlinking a FIFO does NOT unblock a writer already sleeping in open() -- the
+        #   inode lives on while bamtofastq holds it -- so the extraction has to be reaped
+        #   here rather than only on the normal path. Without this, every abnormal exit
+        #   leaves one bamtofastq blocked forever.
+        if extraction is not None and extraction.poll() is None:
+            extraction.kill()
+            extraction.wait()
         for target in temp_read_files:
             Path(target).unlink(missing_ok=True)
 
@@ -662,6 +833,7 @@ def align(
 
 def main() -> int:
     opts = docopt(__doc__)
+    install_signal_handlers()
     try:
         return align(
             input_path=Path(opts["<input>"]),
@@ -676,6 +848,7 @@ def main() -> int:
             sort_with=opts["--sort-with"],
             sort_ram=opts["--sort-ram"],
             read_files_command_requested=opts["--read-files-command"],
+            layout=opts["--layout"],
         )
     except AlignError as error:
         print(f"Error: {error}", file=sys.stderr)

@@ -2,7 +2,7 @@
 """Coordinate-sort a STAR unsorted BAM with samtools, verifying that no reads are lost.
 
 Why this is a separate step, and not part of align_star
--------------------------------------------------------
+======================================================
 STAR's own sorter is in-memory and bounded by --limitBAMsortRAM. The requirement scales
 with read count, so ANY fixed ceiling is one large sample away from failing -- and it
 fails only AFTER the whole mapping phase has been paid for:
@@ -20,7 +20,7 @@ resources, or run on a different host without repeating the alignment. Pair it w
 `ngsutils align_star --sort-with none`, which stops after writing Aligned.out.bam.
 
 Output naming
--------------
+=============
 The sample is identified by the DIRECTORY, not the filename: align_star is given an
 out-prefix ending in "/" and STAR writes its fixed basenames inside it, so a run looks
 like
@@ -97,9 +97,13 @@ class SortError(RuntimeError):
 # Sorting
 
 
-def count_records(bam: str) -> int:
+def count_records(bam: str, threads: int = 1) -> int:
+    """Records in a BAM. Both calls decode the whole file, so it is worth the threads."""
     result = subprocess.run(
-        ["samtools", "view", "-c", bam], capture_output=True, text=True, check=False
+        ["samtools", "view", "-c", "-@", str(threads), bam],
+        capture_output=True,
+        text=True,
+        check=False,
     )
     if result.returncode != 0 or not result.stdout.strip():
         raise SortError(f"could not count records in {bam}: {result.stderr.strip()}")
@@ -180,7 +184,11 @@ def sort_bam(
     print(f"Threads : {threads} x {memory_per_thread} per thread")
     print(f"Temp    : {prefix}.*{BAM_SUFFIX}")
 
-    before = count_records(unsorted)
+    # Before, not only after: a SIGKILLed run never reaches the cleanup below, so a retry
+    # would start with the previous attempt's fragments still present.
+    clear_temporaries(prefix)
+
+    before = count_records(unsorted, threads)
     print(f"Records : {before} in")
 
     argv = [
@@ -203,7 +211,7 @@ def sort_bam(
         Path(sorted_bam).unlink(missing_ok=True)
         raise SortError(f"samtools quickcheck rejected {sorted_bam}")
 
-    after = count_records(sorted_bam)
+    after = count_records(sorted_bam, threads)
     if before != after:
         Path(sorted_bam).unlink(missing_ok=True)
         raise SortError(
@@ -212,7 +220,16 @@ def sort_bam(
         )
 
     if index:
-        subprocess.run(["samtools", "index", "-@", str(threads), sorted_bam], check=False)
+        # NOTE: a failed index is worse than no index. samtools can create the .bai and then
+        #   fail (disk full is the realistic trigger on a working disk run near capacity),
+        #   and a truncated .bai answers region queries wrongly rather than refusing. The
+        #   status was previously discarded, which let the workflow publish the corrupt file.
+        status = subprocess.run(
+            ["samtools", "index", "-@", str(threads), sorted_bam], check=False
+        ).returncode
+        if status != 0:
+            Path(f"{sorted_bam}.bai").unlink(missing_ok=True)
+            raise SortError(f"samtools index failed (exit {status}) on {sorted_bam}")
     if not keep_unsorted:
         Path(unsorted).unlink(missing_ok=True)
         print("Removed the unsorted BAM.")
@@ -228,10 +245,14 @@ def sort_bam(
 def main() -> int:
     opts = docopt(__doc__)
     try:
+        try:
+            threads = int(opts["--threads"])
+        except ValueError:
+            raise SortError(f"--threads must be a number: {opts['--threads']!r}") from None
         sort_bam(
             opts["<unsorted-bam>"],
             opts["<sorted-bam>"],
-            threads=int(opts["--threads"]),
+            threads=threads,
             memory_per_thread=opts["--memory-per-thread"],
             keep_unsorted=opts["--keep-unsorted"],
             index=not opts["--no-index"],

@@ -34,6 +34,50 @@ def _parse(argv: list[str]) -> dict:
 BASE_ARGV = ["in_1.fastq.gz", "genome", "out/sample."]
 
 
+def test_the_docstring_declares_exactly_the_intended_options():
+    """docopt reads ANY line whose first non-space character is "-" as an option definition,
+    so a section underline of dashes or a prose line beginning with a flag name silently
+    becomes an option. Measured 2026-08-20: the docstring had produced the keys "--",
+    "---------------------------------------------" and "--preset:" this way.
+    """
+    # NOTE: startswith("-"), not "--". A continuation line beginning with a SHORT dash token
+    #   -- "-T", "-m", both plausible in prose about samtools -- creates a single-dash option
+    #   that a "--" filter would never see.
+    declared = {key for key in _parse(BASE_ARGV) if key.startswith("-")}
+    assert declared == {
+        "--fastq2",
+        "--genome-load",
+        "--help",
+        "--layout",
+        "--make-sjdb",
+        "--preset",
+        "--read-files-command",
+        "--sort-ram",
+        "--sort-with",
+        "--two-pass",
+    }  # -h folds into --help; a stray short option would show up as its own key
+
+
+def test_no_option_description_names_another_declared_option():
+    """The failure this prevents is silent: naming a declared option inside another option's
+    DESCRIPTION drops the latter's [default:]. It cost --sort-with and --sort-ram under
+    docopts, and --layout under Python docopt before this test existed.
+    """
+    declared = {
+        key for key in _parse(BASE_ARGV) if key.startswith("-")
+    } - {"--help", "-h"}
+    doc = align_star.__doc__
+    options = doc[doc.index("Options:"):]
+    offenders = []
+    for line in options.splitlines():
+        stripped = line.strip()
+        own = stripped.split()[0].split("=")[0] if stripped.startswith("-") else None
+        for flag in declared:
+            if flag != own and flag in stripped:
+                offenders.append((own or "(continuation)", flag, stripped[:60]))
+    assert not offenders, f"option descriptions naming other options: {offenders}"
+
+
 def test_every_valued_option_has_its_documented_default():
     opts = _parse(BASE_ARGV)
     assert opts["--preset"] == "none"
@@ -196,18 +240,40 @@ def test_the_aligned_pass_carries_the_second_pass_options():
     assert "--quantMode" in argv
 
 
+def _flag_values(argv: list[str]) -> dict[str, list[str]]:
+    """{flag: its values} out of a STAR command line."""
+    parsed, current = {}, None
+    for token in argv:
+        if token.startswith("--"):
+            current = token
+            parsed[current] = []
+        elif current is not None:
+            parsed[current].append(token)
+    return parsed
+
+
 def test_the_junction_shaping_options_are_identical_in_both_passes():
     """An sjdb built under one filter regime and consumed under another is not the sjdb the
-    second pass thinks it is, so this equality is the contract of a cohort 2-pass."""
-    first = _argv(make_sjdb=True)
-    second = _argv(make_sjdb=False)
-    common = list(align_star.PRESETS["gdc"]["common"])
-    assert [flag for flag in common if flag.startswith("--")] == [
-        flag for flag in common if flag.startswith("--")
-    ]
-    for flag in common:
-        if flag.startswith("--"):
-            assert flag in first and flag in second
+    second pass thinks it is, so this equality is the contract of a cohort 2-pass.
+
+    The earlier version of this test compared a list comprehension to a copy of itself and
+    then checked only that each flag NAME appeared in both -- it would have passed while the
+    two passes disagreed on every value.
+    """
+    first = _flag_values(_argv(make_sjdb=True))
+    second = _flag_values(_argv(make_sjdb=False))
+    common = _flag_values(["STAR", *align_star.PRESETS["gdc"]["common"]])
+
+    for flag, values in common.items():
+        assert first.get(flag) == values, f"{flag} differs in the sjdb pass"
+        assert second.get(flag) == values, f"{flag} differs in the aligned pass"
+
+
+def test_the_sjdb_pass_carries_no_second_pass_flag():
+    """--outSAMtype None makes the output-formatting options inert or fatal (exit 102)."""
+    first = _flag_values(_argv(make_sjdb=True))
+    second_only = _flag_values(["STAR", *align_star.PRESETS["gdc"]["second"]])
+    assert not (set(first) & set(second_only))
 
 
 def test_sort_with_none_asks_star_for_an_unsorted_bam_and_no_sort_ram():
@@ -440,3 +506,217 @@ def test_partial_outputs_are_discarded_with_the_star_temp_dir(tmp_path):
 
     assert not partial.exists()
     assert not tmp_dir.exists()
+
+
+# %%
+# Layout
+#
+# `auto` costs a full decode of the BAM, twice per sample across the two passes. A caller
+# that already knows the layout -- a sample table carries it -- must be able to say so, and
+# a wrong value must be refused rather than silently mapping mates as independent reads.
+
+
+def test_the_layout_default_is_auto():
+    assert _parse(BASE_ARGV)["--layout"] == "auto"
+
+
+def test_an_explicit_layout_skips_reading_the_bam():
+    """None as the BAM proves nothing was read: detect_bam_layout would raise on it."""
+    assert align_star.resolve_layout("paired", None) is True
+    assert align_star.resolve_layout("single", None) is False
+
+
+def test_an_unknown_layout_is_refused(tmp_path):
+    kwargs = _valid(tmp_path) | {"layout": "pared"}
+    with pytest.raises(align_star.AlignError, match="unknown --layout"):
+        align_star.validate(**kwargs)
+
+
+def test_the_fifos_are_not_hidden_files():
+    """With an out-prefix ending in "/", a leading dot hides the FIFO from a bare ls -- which
+    is when someone is hunting a leftover from a killed run."""
+    source = (
+        Path(align_star.__file__).read_text()
+        if hasattr(align_star, "__file__")
+        else ""
+    )
+    assert '{out_prefix}.R1.fq' not in source
+    assert '{out_prefix}R1.fq' in source
+
+
+# %%
+# Mixed layouts
+#
+# NOTE: the collate=1 F/F2 extraction captures no unpaired category (no O=, O2=, S=), so a
+# BAM holding both kinds would lose its unpaired reads silently if "any record is paired"
+# decided the layout. Refusing is the only safe answer, and --layout is the way past it.
+
+
+def _flagstat(primary: int, paired: int, secondary: int = 0, qc_failed: int = 0) -> str:
+    """samtools flagstat output, with the real field set and ordering.
+
+    NOTE: `in total` includes secondary alignments while `paired in sequencing` counts only
+    primary records -- measured on a real TCGA-UVM BAM as 40,000 total = 15,295 primary +
+    24,705 secondary against 15,295 paired. The secondary argument here exists so the tests
+    would fail if the code ever compared paired against `in total` again.
+    """
+    return (
+        f"{primary + secondary} + {qc_failed} in total (QC-passed reads + QC-failed reads)\n"
+        f"{primary} + {qc_failed} primary\n"
+        f"{secondary} + 0 secondary\n"
+        f"0 + 0 supplementary\n"
+        f"{paired} + {qc_failed} paired in sequencing\n"
+    )
+
+
+class _Ran:
+    """A stand-in for subprocess.run's result."""
+
+    def __init__(self, stdout="", returncode=0, stderr=""):
+        self.stdout, self.returncode, self.stderr = stdout, returncode, stderr
+
+
+def test_a_bam_mixing_paired_and_unpaired_records_is_refused(tmp_path, monkeypatch):
+    monkeypatch.setattr(
+        align_star.subprocess, "run", lambda *a, **k: _Ran(_flagstat(100, 40))
+    )
+    with pytest.raises(align_star.AlignError, match="mixes paired"):
+        align_star.detect_bam_layout(tmp_path / "mixed.bam")
+
+
+def test_a_fully_paired_bam_is_paired(tmp_path, monkeypatch):
+    monkeypatch.setattr(
+        align_star.subprocess, "run", lambda *a, **k: _Ran(_flagstat(100, 100))
+    )
+    assert align_star.detect_bam_layout(tmp_path / "pe.bam") is True
+
+
+def test_multimapping_does_not_make_a_paired_bam_look_mixed(tmp_path, monkeypatch):
+    """The regression this pins: comparing `paired in sequencing` against `in total` reports
+    every multimapping paired BAM as a mix, and would have refused ordinary GDC input. Real
+    numbers from a TCGA-UVM BAM: 15,295 primary, 24,705 secondary, 15,295 paired."""
+    monkeypatch.setattr(
+        align_star.subprocess,
+        "run",
+        lambda *a, **k: _Ran(_flagstat(15295, 15295, secondary=24705)),
+    )
+    assert align_star.detect_bam_layout(tmp_path / "multimapped.bam") is True
+
+
+def test_a_fully_unpaired_bam_is_single(tmp_path, monkeypatch):
+    monkeypatch.setattr(
+        align_star.subprocess, "run", lambda *a, **k: _Ran(_flagstat(100, 0))
+    )
+    assert align_star.detect_bam_layout(tmp_path / "se.bam") is False
+
+
+def test_an_empty_bam_reads_as_single_end(tmp_path, monkeypatch):
+    """0 paired of 0 total is not a mix. It reaches STAR and assert_reads_were_mapped
+    refuses it there -- pinned deliberately so the fall-through stays intentional."""
+    monkeypatch.setattr(
+        align_star.subprocess, "run", lambda *a, **k: _Ran(_flagstat(0, 0))
+    )
+    assert align_star.detect_bam_layout(tmp_path / "empty.bam") is False
+
+
+def test_a_failing_samtools_is_refused_rather_than_read_as_single(tmp_path, monkeypatch):
+    """A failed count must not fall through to single-end: that would map every mate as an
+    independent read."""
+    monkeypatch.setattr(
+        align_star.subprocess,
+        "run",
+        lambda *a, **k: _Ran("", returncode=1, stderr="truncated file"),
+    )
+    with pytest.raises(align_star.AlignError, match="flagstat failed"):
+        align_star.detect_bam_layout(tmp_path / "broken.bam")
+
+
+def test_flagstat_without_the_expected_lines_is_refused(tmp_path, monkeypatch):
+    monkeypatch.setattr(
+        align_star.subprocess, "run", lambda *a, **k: _Ran("unexpected output\n")
+    )
+    with pytest.raises(align_star.AlignError, match="could not read"):
+        align_star.detect_bam_layout(tmp_path / "odd.bam")
+
+
+# %%
+# The watchdog
+#
+# NOTE: this is the fix for a defect that a single pre-flight poll could not catch. A
+# bamtofastq dying on a corrupt header needs tens of milliseconds to get there, by which
+# point STAR is already blocked in open() on a FIFO nothing will write to -- and a hang is
+# invisible to a workflow that watches exit codes.
+
+
+class _FakeProcess:
+    """A Popen stand-in whose exit status appears after a given number of polls."""
+
+    def __init__(self, returncode=0, polls_until_exit=0):
+        self._returncode = returncode
+        self._remaining = polls_until_exit
+        self.killed = False
+
+    def poll(self):
+        if self._remaining > 0:
+            self._remaining -= 1
+            return None
+        return self._returncode
+
+    def kill(self):
+        self.killed = True
+
+    def wait(self):
+        return self._returncode
+
+
+def test_a_dead_extraction_kills_star_instead_of_letting_it_hang(monkeypatch, tmp_path):
+    star = _FakeProcess(returncode=0, polls_until_exit=99)   # STAR would run forever
+    extraction = _FakeProcess(returncode=1, polls_until_exit=0)  # died already
+    monkeypatch.setattr(align_star.subprocess, "Popen", lambda *a, **k: star)
+    monkeypatch.setattr(align_star.time, "sleep", lambda seconds: None)
+
+    with pytest.raises(align_star.AlignError, match="bamtofastq exited 1"):
+        align_star.run_watched(["STAR"], extraction, tmp_path / "in.bam")
+    assert star.killed, "STAR must be killed, not left blocked on the FIFO"
+
+
+def test_an_extraction_that_finished_cleanly_does_not_kill_star(monkeypatch, tmp_path):
+    """Exit 0 while STAR still maps is the normal end of the stream."""
+    star = _FakeProcess(returncode=0, polls_until_exit=3)
+    extraction = _FakeProcess(returncode=0, polls_until_exit=0)
+    monkeypatch.setattr(align_star.subprocess, "Popen", lambda *a, **k: star)
+    monkeypatch.setattr(align_star.time, "sleep", lambda seconds: None)
+
+    assert align_star.run_watched(["STAR"], extraction, tmp_path / "in.bam") == 0
+    assert not star.killed
+
+
+def test_stars_own_exit_status_is_returned(monkeypatch, tmp_path):
+    star = _FakeProcess(returncode=102, polls_until_exit=0)
+    monkeypatch.setattr(align_star.subprocess, "Popen", lambda *a, **k: star)
+    monkeypatch.setattr(align_star.time, "sleep", lambda seconds: None)
+    assert align_star.run_watched(["STAR"], None, tmp_path / "in.bam") == 102
+
+
+def test_an_interruption_kills_a_running_star(monkeypatch, tmp_path):
+    star = _FakeProcess(returncode=0, polls_until_exit=99)
+    monkeypatch.setattr(align_star.subprocess, "Popen", lambda *a, **k: star)
+
+    def interrupt(seconds):
+        raise KeyboardInterrupt
+
+    monkeypatch.setattr(align_star.time, "sleep", interrupt)
+    with pytest.raises(KeyboardInterrupt):
+        align_star.run_watched(["STAR"], None, tmp_path / "in.bam")
+    assert star.killed
+
+
+def test_qc_failed_records_are_counted_because_bamtofastq_extracts_them(tmp_path, monkeypatch):
+    """A BAM whose paired records are all QC-failed reads as single-end if only the QC-passed
+    field is read -- and then its mates are extracted and mapped as independent reads."""
+    monkeypatch.setattr(
+        align_star.subprocess,
+        "run",
+        lambda *a, **k: _Ran(_flagstat(0, 0, qc_failed=100)),
+    )
+    assert align_star.detect_bam_layout(tmp_path / "qcfail.bam") is True

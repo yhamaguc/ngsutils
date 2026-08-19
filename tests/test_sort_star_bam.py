@@ -120,3 +120,58 @@ def test_an_output_name_that_is_not_a_bam_is_refused(tmp_path):
     with pytest.raises(sort_star_bam.SortError, match="does not end in .bam"):
         sort_star_bam.sort_bam(str(unsorted), "8")
     assert unsorted.exists(), "the input must survive a refused run"
+
+
+# %%
+# The docopt traps
+#
+# NOTE: mirrored from test_align_star.py deliberately. docopt reads the WHOLE docstring, so
+#   a section underline of dashes or a prose line starting with a flag becomes an option, and
+#   naming a declared option inside another option's description drops the latter's
+#   [default:]. Both were measured on 2026-08-20 -- the first in this file's own docstring,
+#   the second twice elsewhere -- and both are silent: a lost default arrives as an empty
+#   string that the tool reads as a missing argument.
+
+
+def test_the_docstring_declares_exactly_the_intended_options():
+    declared = {
+        key for key in docopt(sort_star_bam.__doc__, argv=["in.bam"]) if key.startswith("-")
+    }
+    assert declared == {
+        "--help",
+        "--keep-unsorted",
+        "--memory-per-thread",
+        "--no-index",
+        "--threads",
+    }
+
+
+def test_no_option_description_names_another_declared_option():
+    declared = {
+        key
+        for key in docopt(sort_star_bam.__doc__, argv=["in.bam"])
+        if key.startswith("-")
+    } - {"--help"}
+    doc = sort_star_bam.__doc__
+    options = doc[doc.index("Options:"):]
+    offenders = []
+    for line in options.splitlines():
+        stripped = line.strip()
+        own = stripped.split()[0].split("=")[0] if stripped.startswith("-") else None
+        for flag in declared:
+            if flag != own and flag in stripped:
+                offenders.append((own or "(continuation)", flag, stripped[:60]))
+    assert not offenders, f"option descriptions naming other options: {offenders}"
+
+
+def test_a_non_numeric_thread_count_is_a_message_not_a_traceback(capsys):
+    """docopt cannot type-check, so int() would otherwise raise a bare ValueError."""
+    import sys
+
+    argv = sys.argv
+    sys.argv = ["sort_star_bam", "in.bam", "--threads", "eight"]
+    try:
+        assert sort_star_bam.main() == 1
+    finally:
+        sys.argv = argv
+    assert "--threads must be a number" in capsys.readouterr().err
