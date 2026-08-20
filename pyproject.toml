@@ -33,22 +33,3 @@ namespaces = false
 
 [tool.setuptools.package-data]
 ngsutils = ["data/*.pkl"]
-
-[tool.setuptools]
-script-files = [
-  "bin/build_hisat2.sh",
-  "bin/build_hisat2_wo_gtf.sh",
-  "bin/build_kallisto.sh",
-  "bin/build_rsem_ebseq.sh",
-  "bin/build_salmon.sh",
-  "bin/build_star.sh",
-  "bin/conv_sjouttab2bed.py",
-  "bin/conv_tximport.R",
-  "bin/de_deseq2.R",
-  "bin/download_gencode_hs.sh",
-  "bin/gtf2bed.sh",
-  "bin/merge_sjouttab2sjdb.py",
-  "bin/pbrun_fq2bam.sh",
-  "bin/quant_salmon.sh",
-  "bin/trim_fastp.sh"
-]
