@@ -11,14 +11,44 @@ authors = [
 ]
 dependencies = [
   "docopt",
+  "numpy",
   "pandas",
   "polars",
+  # NOTE: polars writes SQLite through its sqlalchemy engine (gtf2sqlite).
   "sqlalchemy",
-  "pysqlite3"
+  # NOTE: get_biomart only; the Ensembl query it makes needs the network.
+  "pybiomart",
+  "pyyaml"
 ]
 
+# NOTE: every subcommand is also installed under its own name, as it was before
+#   0.2.0 moved to pyproject.toml and dropped the per-command console_scripts. The
+#   table in ngsutils/cli.py owns the subcommand list; tests/test_entry_points.py
+#   fails if this block and that table disagree, so add a command in both places.
 [project.scripts]
 ngsutils = "ngsutils.cli:main"
+abs2rel = "ngsutils.abs2rel:main"
+extract_splice_sites = "ngsutils.extract_splice_sites:main"
+gene2tx = "ngsutils.gene2tx:main"
+get_biomart = "ngsutils.get_biomart:main"
+gtf2bed = "ngsutils.gtf2bed:main"
+gtf2sqlite = "ngsutils.gtf2sqlite:main"
+gtf2tsv = "ngsutils.gtf2tsv:main"
+id2name = "ngsutils.id2name:main"
+igv_hide_tracks = "ngsutils.igv_hide_tracks:main"
+igv_list_tracks = "ngsutils.igv_list_tracks:main"
+igv_rename_tracks = "ngsutils.igv_rename_tracks:main"
+igv_set_track_height = "ngsutils.igv_set_track_height:main"
+maf2bed = "ngsutils.maf2bed:main"
+name2id = "ngsutils.name2id:main"
+sqlite2gtf = "ngsutils.sqlite2gtf:main"
+write_coverage_track = "ngsutils.write_coverage_track:main"
+
+[tool.setuptools]
+# NOTE: script-files is an explicit allowlist -- a file sitting in bin/ that is not
+#   named here is never installed. build_id_name_maps.py rebuilds the two pickles in
+#   ngsutils/data that id2name and name2id fall back on.
+script-files = ["bin/build_id_name_maps.py"]
 
 [tool.setuptools.packages.find]
 # NOTE: without include/namespaces, the pyproject form of packages.find defaults
@@ -32,4 +62,8 @@ include = ["ngsutils*"]
 namespaces = false
 
 [tool.setuptools.package-data]
-ngsutils = ["data/*.pkl"]
+# NOTE: data/maps.json is the manifest -- release, tag, asset names, SHA-256 -- that
+#   ngsutils/maps.py resolves the lookup maps through. The maps themselves are release
+#   assets, not committed files; the .pkl glob is here only so that an offline install
+#   can vendor one by hand into ngsutils/data and have it installed.
+ngsutils = ["data/*.json", "data/*.pkl"]

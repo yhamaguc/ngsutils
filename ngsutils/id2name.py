@@ -3,6 +3,11 @@
 """
 Convert Ensembl ID to feature (gene/transcript) name
 
+Identifiers are matched on their first 15 characters, so a version suffix is
+ignored. With no annotation file given, the map named by ngsutils/data/maps.json is
+used: a vendored copy if the package has one, else the local cache, else the GitHub
+release asset the manifest points at. bin/build_id_name_maps.py builds both.
+
 Usage:
   id2name [options]
 
@@ -24,10 +29,14 @@ logging.basicConfig(level=logging.ERROR, force=True)
 for logger_name in list(logging.root.manager.loggerDict.keys()):
     logging.getLogger(logger_name).setLevel(logging.ERROR)
 
-import ngsutils.gtf as gtfparse
-import polars as pl
-
 from docopt import docopt
+
+import ngsutils.maps as maps
+
+# NOTE: polars and ngsutils.gtf are imported inside main() instead of here. They are
+#   reached only when an annotation file is given; on the prebuilt-map path they cost
+#   484 ms of the command's 520 ms and nothing uses them. Measured 2026-08-21 by
+#   scripts/bench_map_load.py.
 
 
 def main():
@@ -63,6 +72,9 @@ def main():
 
         if features is None:
             print("Generating cache file based on GTF...", file = sys.stderr)
+            import ngsutils.gtf as gtfparse
+            import polars as pl
+
             gtf = gtfparse.read_gtf(gtf_path)
 
             genes = gtf.select([
@@ -80,19 +92,13 @@ def main():
             with open(cache_path, 'wb') as f:
                 pickle.dump(features, f)
     else:
-        default_pkl = os.path.join(os.path.dirname(__file__), 'data', 'id2name_gencode.v45.pkl')
-
-        if os.path.exists(default_pkl):
-            try:
-                with open(default_pkl, 'rb') as f:
-                    features = pickle.load(f)
-            except:
-                features = None
-
-        if features is None:
-            print("Error: No GTF file specified and no default annotation data found.", file=sys.stderr)
-            print("Please specify a valid GTF file as --gtf option or GTF environment variable.", file=sys.stderr)
-            raise FileNotFoundError
+        # NOTE: ngsutils.maps owns which map this is and what its bytes must hash to.
+        #   It raises rather than returning a partial map, on purpose: a lookup that
+        #   answers nothing for every row is worse than a command that fails.
+        try:
+            features = maps.load("id2name")
+        except maps.MapUnavailable as error:
+            raise SystemExit(str(error))
 
     for line in input_file:
         fields = line.rstrip('\n').split('\t')

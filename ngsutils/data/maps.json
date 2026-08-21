@@ -1,0 +1,45 @@
+{
+  "assets": {
+    "id2name": {
+      "archive_bytes": 4483911,
+      "archive_sha256": "072fb5d25f3961ced5ac10465b5f33a230da9965c3c6b13b694dd32238b2c3d3",
+      "file": "id2name_gencode.v50.pkl.gz",
+      "keys": 725519,
+      "pickle_bytes": 23018427,
+      "pickle_sha256": "18e948f9e59e9bb8be03dbad4afcdd371d468a01141200705f51fbaaaaf6409d"
+    },
+    "name2id": {
+      "archive_bytes": 4526338,
+      "archive_sha256": "791ad772a5623be6470ddd585f7bae77756de267441d2ecf7dfddb0b96a3c4e3",
+      "file": "name2id_gencode.v50.pkl.gz",
+      "keys": 723889,
+      "pickle_bytes": 22974355,
+      "pickle_sha256": "8aae15d6bd64cb0d14f7246ac0ca8cc66662be38a351952cccbee60b9888b613"
+    }
+  },
+  "provenance": {
+    "build_route": "row by row",
+    "built_by": "build_id_name_maps.py",
+    "cross_checked_against_ngsutils_gtf": true,
+    "gene_names_reused": 484,
+    "gene_pairs": 78941,
+    "git_revision": "bf793a41bddb48791a816b53e9f47e907d87dc5e",
+    "gtf_header": [
+      "##description: evidence-based annotation of the human genome (GRCh38), version 50 (Ensembl 116)",
+      "##provider: GENCODE",
+      "##contact: gencode-help@ebi.ac.uk",
+      "##format: gtf",
+      "##date: 2026-04-08"
+    ],
+    "gtf_md5": "289b91e5e95e8b0450d223246f10a12e",
+    "gtf_path": "/home/yhamaguc/share/references/annotations/gencode.v50.primary_assembly.annotation.gtf.gz",
+    "id_prefix_length": 15,
+    "python": "3.12.12",
+    "rows_read": 11254876,
+    "transcript_names_reused": 0,
+    "transcript_pairs": 646578
+  },
+  "release": "gencode.v50",
+  "repository": "yhamaguc/ngsutils",
+  "tag": "maps-gencode.v50"
+}

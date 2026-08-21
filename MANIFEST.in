@@ -1,2 +1,3 @@
 include README.md
+recursive-include ngsutils/data *.json
 recursive-include ngsutils/data *.pkl
