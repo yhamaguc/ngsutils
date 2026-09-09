@@ -3,11 +3,11 @@
 Extract splice site sequence from GTF
 
 Usage:
-  extract_splice_sites.py [options] <gtf>
+  extract_splice_sites [options] <gtf>
 
 Options:
   -w --width <INT>  : donor / acceptor width [default: 2]
-  <gtf>          : GTF file
+  <gtf>          : GTF file, .gz accepted
 
 """
 

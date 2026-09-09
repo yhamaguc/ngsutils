@@ -3,7 +3,7 @@
 Append description and GO term from biomart to SQLite annotation database
 
 Usage:
-    append_biomart [options] <sqlite>
+    get_biomart [options] <sqlite>
 
 Options:
     -r --reference <TYPE>  : Reference genome version (grch38/grch37/grcm38/ce11) [default: grch38]

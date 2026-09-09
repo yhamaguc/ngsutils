@@ -8,29 +8,27 @@ Usage:
 
 Options:
   -o --output-dir <PATH>  : Output directory [default: .]
-  <gtf>                : GTF formatted gene annotation file
+  <gtf>                : GTF formatted gene annotation file, .gz accepted
 
 """
 
 import os
 
 from docopt import docopt
-from ngsutils.gtf import read_gtf
+from ngsutils.gtf import gtf_stem, read_gtf
 
 
 def main():
     options = docopt(__doc__)
     gtf_path = options['<gtf>']
 
-    root, _ = os.path.splitext(os.path.basename(gtf_path))
-
     output_path = os.path.join(
         options['--output-dir'],
-        f"{root}.gene2tx.txt"
+        f"{gtf_stem(gtf_path)}.gene2tx.txt"
     )
 
     cols = ['gene_id', 'transcript_id']
-    annotations = read_gtf(gtf_path)
+    annotations = read_gtf(gtf_path, result_type='pandas')
     annotations = annotations.query(
         "feature == 'exon'"
     ).filter(cols).sort_values(by=cols)

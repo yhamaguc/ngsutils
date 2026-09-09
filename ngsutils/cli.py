@@ -1,4 +1,5 @@
-"""#!/usr/bin/env python3Subcommand dispatcher for ngsutils.
+#!/usr/bin/env python3
+"""Subcommand dispatcher for ngsutils.
 
 Usage:
     ngsutils <subcommand> [<args>...]
@@ -36,7 +37,10 @@ _SUBCOMMANDS = {
 
 def _print_help(prog):
     print(f"Usage: {prog} <subcommand> [args...]\n")
-    print("Run `ngsutils <subcommand> --help` for command help.\n")
+    print("Run `ngsutils <subcommand> --help` for command help.")
+    # NOTE: pyproject.toml installs each of these under its own name as well, so
+    #   `id2name ...` and `ngsutils id2name ...` are the same program.
+    print("Each subcommand is also installed as a command of its own name.\n")
     print("Available subcommands:")
     for name in sorted(_SUBCOMMANDS):
         print(f"  {name}")

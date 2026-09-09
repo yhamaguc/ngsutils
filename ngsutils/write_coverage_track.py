@@ -93,14 +93,14 @@ Usage:
 
 Options:
   -o <dir>, --output-dir=<dir>   Directory for the bedGraph files. Created if absent.
-  -a <file>, --gtf=<file>        GENCODE/Ensembl GTF, .gz accepted. Required with --id.
+  -a <file>, --gtf=<file>        GENCODE/Ensembl GTF, .gz accepted. Required when an ID is given.
   -t <id>, --id=<id>             ENSG/ENST/ENSE ID, or a gene name. Repeatable. Version optional.
   -r <spec>, --region=<spec>     1-based inclusive CONTIG:START-END, optionally NAME=CONTIG:START-END.
                           Repeatable.
   -M <mode>, --mode=<mode>       auto | exon | merged_exon | span [default: span]
   -L <bp>, --lower=<bp>          Flank toward lower coordinates [default: 0]
   -U <bp>, --upper=<bp>          Flank toward higher coordinates [default: 0]
-  -F <bp>, --flank=<bp>          Shorthand for --lower BP --upper BP.
+  -F <bp>, --flank=<bp>          Shorthand: the same BP as both flanks, lower and upper.
   -l <name>, --label=<name>      Name for one BAM, repeatable; as many as <bam>, in the same order.
   -f <source>, --label-from=<source>   Derive labels instead: basename | stem | parent | parent-stem
                           [default: stem]

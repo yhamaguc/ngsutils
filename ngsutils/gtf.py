@@ -7,7 +7,7 @@
 
 import logging
 from collections import OrderedDict
-from os.path import exists
+from os.path import basename, exists, splitext
 from sys import intern
 
 import polars
@@ -17,6 +17,38 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 __version__ = "2.5.0"
+
+
+# ---------------------------------------------------------------------------
+# Input paths
+#
+# NOTE: this module owns what a GTF path may look like, and it is the only place
+#   that decides. Reading needs nothing: polars decompresses gzip itself, verified
+#   on plain, concatenated-member and bgzip input by tests/test_gtf_gzip.py, so
+#   read_gtf() below takes a .gtf.gz unchanged. What the subcommands that name an
+#   output after their input need is the stem, and os.path.splitext alone strips
+#   only ".gz" -- which named the output of "x.gtf.gz" as "x.gtf.bed".
+# ---------------------------------------------------------------------------
+
+# NOTE: write_coverage_track.open_maybe_gzip() holds the same pair inline rather than
+#   importing it from here -- reaching this module would pull in polars and pandas, 484 ms
+#   it never otherwise pays. The two must be kept in step by hand.
+COMPRESSION_SUFFIXES = (".gz", ".bgz")
+
+
+def gtf_stem(gtf_path):
+    """Basename of a GTF path with its compression and format suffixes removed.
+
+    "x.gtf" and "x.gtf.gz" both give "x", so a compressed input names its output
+    exactly as the equivalent plain file would. Dots that are not suffixes are
+    kept: "gencode.v50.annotation.gtf.gz" gives "gencode.v50.annotation".
+    """
+    name = basename(gtf_path)
+    for suffix in COMPRESSION_SUFFIXES:
+        if name.lower().endswith(suffix):
+            name = name[:-len(suffix)]
+            break
+    return splitext(name)[0]
 
 
 # ---------------------------------------------------------------------------

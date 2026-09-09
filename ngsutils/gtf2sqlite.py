@@ -7,7 +7,7 @@ Usage:
   gtf2sqlite <gtf> [<target_table_name>]
 
 Arguments:
-  <gtf>                    GTF file
+  <gtf>                    GTF file, .gz accepted
   <target_table_name>      Target table name [default: annotations]
 
 """
@@ -28,9 +28,9 @@ def main():
 
     gtf_df = gtfparse.read_gtf(gtf_path)
 
-    gtf_abspath = os.path.abspath(gtf_path)
-    root, _ = os.path.splitext(gtf_abspath)
-    output_path = root + '.sqlite'
+    output_dir = os.path.dirname(os.path.abspath(gtf_path))
+    output_path = os.path.join(
+        output_dir, gtfparse.gtf_stem(gtf_path) + '.sqlite')
 
     conn = 'sqlite:///' + output_path
     gtf_df.write_database(target_table, conn, if_table_exists='replace', engine='sqlalchemy')

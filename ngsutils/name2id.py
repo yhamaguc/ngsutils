@@ -12,7 +12,7 @@ Usage:
   name2id [options]
 
 Options:
-  --gtf <PATH>   : Annotation file in GTF format
+  --gtf <PATH>   : Annotation file in GTF format, .gz accepted
   -f --file <PATH>  : Input file [default: stdin]
   -c --col <INT>    : Name column position [default: 1]
 

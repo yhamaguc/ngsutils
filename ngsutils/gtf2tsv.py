@@ -6,6 +6,9 @@ Convert GTF to TSV
 Usage:
   gtf2tsv <gtf>
 
+Arguments:
+  <gtf>  GTF file, .gz accepted
+
 """
 
 import sys
@@ -38,7 +41,7 @@ def expand_attributes(df, quote_chr='\"', replacement=''):
     attributes = df['attribute'].replace('; ', ';', regex=True)
     expanded = pd.DataFrame(
         [to_key_value(a) for a in attributes],
-        ).fillna(replacement).applymap(lambda x: x.strip(quote_chr))
+        ).fillna(replacement).map(lambda x: x.strip(quote_chr))
 
     # FIXME: Save order
     df_expanded = pd.concat([

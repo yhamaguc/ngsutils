@@ -4,12 +4,12 @@
 Convert gene annotation GTF to BED
 
 Usage:
-  gtf2bed4igv [options] <gtf>
+  gtf2bed [options] <gtf>
 
 Options:
   --tx-only   : Output transcript records only [default: False]
   --simplify  : Exclude feature name and feature type from ID [default: False]
-  <gtf>       : GTF file
+  <gtf>       : GTF file, .gz accepted
 
 """
 
@@ -20,7 +20,7 @@ from functools import partial
 from docopt import docopt
 import numpy as np
 import pandas as pd
-from ngsutils.gtf import read_gtf
+from ngsutils.gtf import gtf_stem, read_gtf
 
 
 def pack_name(id: pd.Series, feature_name: pd.Series, biotype: pd.Series):
@@ -108,10 +108,14 @@ def main():
     # NOTE: Exon record
     gtf_df = gtf_dfs["exon"].copy()
 
+    # NOTE: dtype=str, not np.unicode. numpy 2 removed the np.unicode alias, so a GTF
+    #   carrying no exon_id attribute -- StringTie output, among others -- raised
+    #   AttributeError here instead of getting the synthetic ids this branch exists to
+    #   supply. str sizes the array to its widest value, so the ids are not truncated.
     optional_columns = ["exon_id"]
     for c in optional_columns:
         if c not in gtf_df.columns:
-            gtf_df[c] = np.array(range(len(gtf_df)), dtype=np.unicode)
+            gtf_df[c] = np.array(range(len(gtf_df)), dtype=str)
 
     gtf_df["size"] = gtf_df.end - gtf_df.start + 1
     columns_ = ["transcript_id", "start", "end"]
@@ -196,18 +200,36 @@ def main():
 
     bed_df.set_index(idx, inplace=True, drop=True)
 
-    bed_df["thick_start"].where(
-        cds_start_min_[idx].isna(), cds_start_min_[idx], inplace=True
-    )
-    bed_df["thick_start"].where(
-        ss_codons_start_min_[idx].isna(), ss_codons_start_min_[idx], inplace=True
-    )
+    # NOTE: this is the step that owns transcript_id uniqueness. The reindex below cannot
+    #   align against a duplicated label, and a duplicated transcript_id would pair one
+    #   transcript's coding range with another's regardless.
+    duplicated_ids = sorted(set(idx[idx.duplicated()]))
+    if duplicated_ids:
+        raise ValueError(
+            f"{len(duplicated_ids)} transcript_id values appear on more than one "
+            f"transcript row, e.g. {duplicated_ids[:3]}")
 
-    bed_df["thick_end"].where(cds_end_max_[idx].isna(),
-                              cds_end_max_[idx], inplace=True)
-    bed_df["thick_end"].where(
-        ss_codons_end_max_[idx].isna(), ss_codons_end_max_[idx], inplace=True
+    # NOTE: .reindex(), not [idx]. A label lookup with [idx] raises KeyError for every
+    #   label the Series lacks, and cds_start_min_ is built from CDS rows alone -- so a
+    #   single non-coding transcript (lncRNA, Mt_tRNA, miRNA) killed the run, which is
+    #   every real GENCODE file. .reindex() returns NaN for those instead, which is what
+    #   the .isna() branch is written to expect.
+    #
+    # NOTE: the result is assigned back to the column. The form this replaces,
+    #   `bed_df["thick_start"].where(..., inplace=True)`, writes to a temporary under
+    #   pandas copy-on-write and never reached bed_df at all: until 2026-09-09 NO
+    #   transcript carried a coding range, coding ones included. pandas 3.0 reports it as
+    #   ChainedAssignmentError, which is a warning, so the run looked clean.
+    #
+    # The CDS bounds come first and the codon bounds override them, per the source order.
+    thick_column_sources = (
+        ("thick_start", (cds_start_min_, ss_codons_start_min_)),
+        ("thick_end", (cds_end_max_, ss_codons_end_max_)),
     )
+    for column, sources in thick_column_sources:
+        for source in sources:
+            override = source.reindex(bed_df.index)
+            bed_df[column] = bed_df[column].where(override.isna(), override)
 
     bed_dfs["transcript"] = bed_df
 
@@ -218,8 +240,8 @@ def main():
     if output_dir == "":
         output_dir = "."
 
-    gtf_root, _ = os.path.splitext(os.path.basename(gtf_path))
-    output_path = os.path.join(output_dir, "{}.bed".format(gtf_root))
+    output_path = os.path.join(
+        output_dir, "{}.bed".format(gtf_stem(gtf_path)))
 
     for c in ["score", "thick_start", "thick_end", "block_count"]:
         bed_df_merged[c] = bed_df_merged[c].astype(int)

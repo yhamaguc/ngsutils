@@ -3,10 +3,10 @@
 Convert positions from genome coordinates to transcript coordinates
 
 Usage:
-  abspos2relpos <gtf>
+  abs2rel <gtf>
 
 Arguments:
-  <gtf>  GTF file
+  <gtf>  GTF file, .gz accepted
 
 """
 
@@ -17,7 +17,7 @@ from functools import partial
 from docopt import docopt
 import numpy as np
 import pandas as pd
-from ngsutils.gtf import read_gtf
+from ngsutils.gtf import gtf_stem, read_gtf
 
 
 def pack_name(id: pd.Series, feature_name: pd.Series, biotype: pd.Series):
@@ -49,7 +49,7 @@ def main():
     options = docopt(__doc__)
     gtf_path = options['<gtf>']
 
-    gtf_df = read_gtf(gtf_path)
+    gtf_df = read_gtf(gtf_path, result_type='pandas')
 
     features = ['gene', 'transcript', 'exon']
 
@@ -69,18 +69,29 @@ def main():
     zeros_ = np.zeros(len(gtf_df.index)).astype(int)
     starts_ = gtf_df.start - 1
     ends_ = gtf_df.end
+    # NOTE: the gene becomes its own reference sequence here, so every coordinate below is
+    #   an offset from the gene start and the record spans [0, length) in the 0-based
+    #   half-open BED frame. length is the 1-based inclusive GTF span, end - start + 1,
+    #   which is ends_ - starts_ because starts_ has already taken the base off. Adding
+    #   one again -- as this line did until 2026-09-09 -- counts one base twice and left
+    #   the final block ending one short of the record end, which is not valid BED12.
+    lengths_ = ends_ - starts_
     bed_df = pd.DataFrame({
         'chr': gtf_df.gene_id,
         'start': zeros_,
-        'end': ends_ - starts_ + 1,
+        'end': lengths_,
         'name': pack_name(gtf_df.gene_id, gtf_df.gene_name, gtf_df.gene_type),
         'score': zeros_,
         'strand': gtf_df.strand,
-        'thick_start': ends_,
-        'thick_end': ends_,
+        # NOTE: thick_start == thick_end == 0 is BED's "no coding range marked". abs2rel
+        #   reads gene, transcript and exon only -- no CDS and no codon features -- so it
+        #   has nothing to mark. Both columns held ends_, an absolute GTF coordinate,
+        #   which fell outside the record it belonged to.
+        'thick_start': zeros_,
+        'thick_end': zeros_,
         'item_rgb': gtf_df.strand.apply(assign_color_),
         'block_count': np.ones(len(gtf_df.index)),
-        'block_sizes': (gtf_df.end - gtf_df.start + 1).astype(str) + ',',
+        'block_sizes': lengths_.astype(str) + ',',
         'block_starts': pd.Series(zeros_).astype(str).values + ','})
 
     bed_dfs['gene'] = bed_df
@@ -92,7 +103,10 @@ def main():
     columns_ = ['gene_id', 'start', 'end']
     outer_df = gtf_df
     inner_df = gtf_dfs['gene'].filter(columns_)
-    gtf_df = pd.merge(outer_df, inner_df, on='gene_id', left_index=True)
+    # NOTE: on='gene_id' alone, as gtf2bed's equivalent merge does. The
+    #   left_index=True this line carried until 2026-09-09 is rejected by pandas
+    #   in combination with on=, so the line had most likely never run.
+    gtf_df = pd.merge(outer_df, inner_df, on='gene_id')
     gtf_df['rel_start'] = gtf_df.start_x - gtf_df.start_y
     gtf_df = gtf_df.sort_values(['gene_id', 'start_x'])
     gtf_df['size'] = gtf_df['size'].astype(str)
@@ -101,8 +115,11 @@ def main():
     sizes_ = gtf_df.groupby('gene_id')['size'].apply(lambda x: ','.join(x))
     rel_starts_ = gtf_df.groupby(
         'gene_id')['rel_start'].apply(lambda x: ','.join(x))
-    counts_ = gtf_df.groupby('gene_id')['exon_id'].count().rename(
-        columns={'exon_id': 'count'})
+    # NOTE: no rename. The .rename(columns={'exon_id': 'count'}) this line carried is a
+    #   TypeError on a Series, and gtf2bed's .rename({'exon_id': 'count'}) form renames
+    #   index LABELS, none of which is 'exon_id' -- so it renamed nothing there either.
+    #   Nothing below reads this by name; block_count indexes it by gene_id.
+    counts_ = gtf_df.groupby('gene_id')['exon_id'].count()
 
     feature = 'gene'
     gtf_df = gtf_dfs[feature]
@@ -116,13 +133,11 @@ def main():
     if output_dir == '':
         output_dir = '.'
 
-    gtf_root, _ = os.path.splitext(os.path.basename(gtf_path))
-    output_path = os.path.join(output_dir, "{}_2.bed".format(gtf_root))
+    output_path = os.path.join(
+        output_dir, "{}_2.bed".format(gtf_stem(gtf_path)))
 
     for c in ['score', 'thick_start', 'thick_end', 'block_count']:
         bed_df_merged[c] = bed_df_merged[c].astype(int)
-
-    bed_df_merged['chr'] = bed_df_merged.chr.str.replace('^ENSG', 'IMMT')
 
     with open(output_path, 'w') as f:
         f.write("#gffTags\n")

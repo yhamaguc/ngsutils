@@ -12,7 +12,7 @@ Usage:
   id2name [options]
 
 Options:
-  --gtf <PATH>   : Annotation file in GTF format
+  --gtf <PATH>   : Annotation file in GTF format, .gz accepted
   -f --file <PATH>  : Input file [default: stdin]
   -c --col <INT>    : ID column position [default: 1]
 
